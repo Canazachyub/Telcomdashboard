@@ -53,7 +53,7 @@ function SupervisorRoute({ children }: { children: React.ReactNode }) {
 
 function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename="/Telcomdashboard">
       <Routes>
         {/* Ruta pública - Login */}
         <Route path="/login" element={<LoginPage />} />
