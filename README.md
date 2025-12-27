@@ -2,6 +2,12 @@
 
 Dashboard web para supervision y gestion de jornadas de trabajo de campo. Complementa la app movil Flutter (Timestamp Camera) para el registro fotografico de suministros electricos.
 
+## Demo en Vivo
+
+**URL:** https://canazachyub.github.io/Telcomdashboard/
+
+**Repositorio:** https://github.com/Canazachyub/Telcomdashboard
+
 ---
 
 ## Arquitectura del Sistema
@@ -93,6 +99,7 @@ c:\PROGRAMACION\TelcomDashboard\
 │   │   ├── SuministrosPage.tsx      # Tabla con filtros y paginacion
 │   │   ├── JornadasPage.tsx         # Gestion de hojas/jornadas
 │   │   ├── ReportesPage.tsx         # Generacion de reportes PDF
+│   │   ├── InventoryPage.tsx        # Gestion de inventario de equipos
 │   │   └── UsersPage.tsx            # CRUD de usuarios (solo ADMIN)
 │   │
 │   ├── stores/
@@ -121,9 +128,16 @@ c:\PROGRAMACION\TelcomDashboard\
 │   ├── main.tsx                     # Entry point
 │   └── index.css                    # Estilos globales + Tailwind
 │
+├── .github/
+│   └── workflows/
+│       └── deploy.yml            # GitHub Actions para deploy automatico
+│
+├── public/
+│   └── 404.html                  # Redirect para SPA en GitHub Pages
+│
 ├── package.json
 ├── postcss.config.js
-├── vite.config.ts
+├── vite.config.ts                # Incluye base: '/Telcomdashboard/'
 └── README.md
 ```
 
@@ -392,13 +406,14 @@ previewUrl = `https://drive.google.com/file/d/${fileId}/preview`
 ## Instalacion y Desarrollo
 
 ```bash
-# Clonar/navegar al proyecto
-cd c:\PROGRAMACION\TelcomDashboard
+# Clonar repositorio
+git clone https://github.com/Canazachyub/Telcomdashboard.git
+cd Telcomdashboard
 
 # Instalar dependencias
 npm install
 
-# Ejecutar en desarrollo (http://localhost:5173)
+# Ejecutar en desarrollo (http://localhost:5173/Telcomdashboard/)
 npm run dev
 
 # Compilar para produccion
@@ -410,6 +425,50 @@ npm run preview
 # Lint
 npm run lint
 ```
+
+---
+
+## Despliegue a GitHub Pages
+
+El proyecto esta configurado para desplegarse automaticamente en GitHub Pages usando GitHub Actions.
+
+### Configuracion Actual
+
+1. **Base Path:** `/Telcomdashboard/` configurado en `vite.config.ts`
+2. **Router Basename:** `<BrowserRouter basename="/Telcomdashboard">` en `App.tsx`
+3. **SPA Routing:** `404.html` redirige rutas al index para soporte de React Router
+
+### Deploy Automatico
+
+Cada push a la rama `main` dispara el workflow de GitHub Actions:
+
+```yaml
+# .github/workflows/deploy.yml
+- Checkout del codigo
+- Setup Node.js 20
+- npm ci
+- npm run build
+- Deploy a GitHub Pages
+```
+
+### Deploy Manual
+
+```bash
+# Compilar el proyecto
+npm run build
+
+# El contenido de ./dist se despliega automaticamente
+git add .
+git commit -m "Update"
+git push origin main
+```
+
+### URLs del Proyecto
+
+| Entorno | URL |
+|---------|-----|
+| Produccion | https://canazachyub.github.io/Telcomdashboard/ |
+| Desarrollo | http://localhost:5173/Telcomdashboard/ |
 
 ---
 
@@ -509,6 +568,15 @@ La app movil Flutter v2.2.0 ahora incluye:
 ---
 
 ## Historial de Cambios Recientes
+
+### v1.4.0 (26/12/2025) - Despliegue a GitHub Pages
+- **NEW:** Repositorio publico en GitHub: https://github.com/Canazachyub/Telcomdashboard
+- **NEW:** Despliegue automatico con GitHub Actions
+- **NEW:** URL de produccion: https://canazachyub.github.io/Telcomdashboard/
+- **NEW:** Soporte SPA routing con 404.html redirect
+- **FIX:** Agregado `basename="/Telcomdashboard"` al BrowserRouter
+- **FIX:** Configurado `base: '/Telcomdashboard/'` en vite.config.ts
+- **FIX:** Manejo mejorado de tokens expirados en UsersPage
 
 ### v1.3.1 (26/12/2025) - Correcciones de Fotos y PDFs
 - **FIX:** PhotoGalleryModal - Corregido error CSP al visualizar fotos (cambiado iframe por img)
