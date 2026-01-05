@@ -969,9 +969,23 @@ export default function MapPage() {
                     </h3>
 
                     {extPoint.tecnico && (
-                      <p className="text-sm mb-2">
+                      <p className="text-sm mb-1">
                         <span className="text-gray-500">Tecnico:</span>{' '}
                         <span className="font-medium">{extPoint.tecnico}</span>
+                      </p>
+                    )}
+
+                    {extPoint.codigoRuta && (
+                      <p className="text-sm mb-1">
+                        <span className="text-gray-500">Código Ruta:</span>{' '}
+                        <span className="font-medium">{extPoint.codigoRuta}</span>
+                      </p>
+                    )}
+
+                    {extPoint.serie && (
+                      <p className="text-sm mb-2">
+                        <span className="text-gray-500">Serie:</span>{' '}
+                        <span className="font-medium">{extPoint.serie}</span>
                       </p>
                     )}
 
