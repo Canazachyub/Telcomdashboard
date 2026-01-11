@@ -11,6 +11,10 @@ import {
   RefreshCw,
   Database,
   Zap,
+  ExternalLink,
+  Link,
+  Brain,
+  Sparkles,
 } from 'lucide-react';
 import { getStatusLabel } from '../types/point';
 
@@ -91,6 +95,90 @@ export default function DashboardPage() {
           <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
           {isLoading ? 'Cargando...' : 'Actualizar'}
         </button>
+      </div>
+
+      {/* Enlaces Rapidos Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Enlaces Rapidos */}
+        <div className="bg-white rounded-xl border border-gray-200 p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <Link className="text-primary-600" size={20} />
+            <h2 className="text-lg font-semibold text-gray-900">Enlaces Rapidos</h2>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <a
+              href="https://canazachyub.github.io/seacetelcom/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-3 p-4 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors group"
+            >
+              <div className="p-2 bg-blue-500 rounded-lg">
+                <ExternalLink className="text-white" size={18} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-gray-900 group-hover:text-blue-700">SEACE Seguimiento</p>
+                <p className="text-xs text-gray-500 truncate">Seguimiento de procesos</p>
+              </div>
+            </a>
+            <a
+              href="http://localhost:3001/admin/empleados"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-3 p-4 bg-green-50 hover:bg-green-100 border border-green-200 rounded-lg transition-colors group"
+            >
+              <div className="p-2 bg-green-500 rounded-lg">
+                <Users className="text-white" size={18} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-gray-900 group-hover:text-green-700">Administrar Trabajadores</p>
+                <p className="text-xs text-gray-500 truncate">Gestion de empleados</p>
+              </div>
+            </a>
+          </div>
+        </div>
+
+        {/* Seccion IA */}
+        <div className="bg-white rounded-xl border border-gray-200 p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <Brain className="text-purple-600" size={20} />
+            <h2 className="text-lg font-semibold text-gray-900">Herramientas IA</h2>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <a
+              href="https://gemini.google.com/app"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex flex-col items-center gap-2 p-4 bg-gradient-to-br from-blue-50 to-purple-50 hover:from-blue-100 hover:to-purple-100 border border-purple-200 rounded-lg transition-colors group"
+            >
+              <div className="p-2 bg-gradient-to-r from-blue-500 to-purple-500 rounded-lg">
+                <Sparkles className="text-white" size={18} />
+              </div>
+              <p className="font-medium text-gray-900 group-hover:text-purple-700 text-sm">Gemini</p>
+            </a>
+            <a
+              href="https://notebooklm.google.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex flex-col items-center gap-2 p-4 bg-gradient-to-br from-orange-50 to-yellow-50 hover:from-orange-100 hover:to-yellow-100 border border-orange-200 rounded-lg transition-colors group"
+            >
+              <div className="p-2 bg-gradient-to-r from-orange-500 to-yellow-500 rounded-lg">
+                <Brain className="text-white" size={18} />
+              </div>
+              <p className="font-medium text-gray-900 group-hover:text-orange-700 text-sm">NotebookLM</p>
+            </a>
+            <a
+              href="https://chatgpt.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex flex-col items-center gap-2 p-4 bg-gradient-to-br from-green-50 to-teal-50 hover:from-green-100 hover:to-teal-100 border border-green-200 rounded-lg transition-colors group"
+            >
+              <div className="p-2 bg-gradient-to-r from-green-600 to-teal-500 rounded-lg">
+                <Sparkles className="text-white" size={18} />
+              </div>
+              <p className="font-medium text-gray-900 group-hover:text-green-700 text-sm">ChatGPT</p>
+            </a>
+          </div>
+        </div>
       </div>
 
       {/* Stats Cards */}
