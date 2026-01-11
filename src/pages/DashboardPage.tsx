@@ -121,7 +121,7 @@ export default function DashboardPage() {
               </div>
             </a>
             <a
-              href="http://localhost:3001/admin/empleados"
+              href="https://ingeneriatelcom.com/admin"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-3 p-4 bg-green-50 hover:bg-green-100 border border-green-200 rounded-lg transition-colors group"
