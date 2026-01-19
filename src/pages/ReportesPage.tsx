@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { usePointsStore, useSheetStructure, useTecnicos, useDistritos, useFilters } from '../stores/pointsStore';
 import type { GpsPointExtended, PhotoLink } from '../types/point';
 import {
@@ -16,6 +16,36 @@ const DEFAULT_PAGE_SIZE = 50;
 
 type SortField = 'numero' | 'serie' | 'suministro' | 'ruta' | 'lectura' | 'fechaContraste' | 'fechaSupervision';
 type SortDirection = 'asc' | 'desc';
+
+// ========== CATEGORÍAS DE OBSERVACIÓN ==========
+// Textos exactos que se registran desde la app móvil
+const OBSERVACION_EJECUTADO = 'CONTRATISTA MALCOM EJECUTO EL CONTRASTE EN LA FECHA PROGRAMADA';
+const OBSERVACION_NO_EJECUTADO = 'CONTRATISTA MALCOM NO EJECUTA EL CONTRASTE EN LA FECHA PROGRAMADA';
+
+// Tipos de categoría para exportación
+type ObservacionCategory = 'todos' | 'ejecutados' | 'no_ejecutados' | 'observaciones';
+
+// Función para clasificar un item según su observación
+// IMPORTANTE: Si no tiene observación, se considera NO EJECUTADO por defecto
+// (ya que la funcionalidad de observaciones es nueva y los registros anteriores no la tienen)
+function getObservacionCategory(observacion: string | undefined): ObservacionCategory {
+  if (!observacion || observacion.trim() === '') {
+    return 'no_ejecutados'; // Sin observación = NO EJECUTADO por defecto
+  }
+
+  const obs = observacion.trim().toUpperCase();
+
+  if (obs === OBSERVACION_EJECUTADO.toUpperCase()) {
+    return 'ejecutados';
+  }
+
+  if (obs === OBSERVACION_NO_EJECUTADO.toUpperCase()) {
+    return 'no_ejecutados';
+  }
+
+  // Cualquier otro texto es una observación escrita personalizada
+  return 'observaciones';
+}
 
 // Tipo para el reporte (solo puntos con lectura)
 interface ReporteItem {
@@ -67,7 +97,27 @@ export default function ReportesPage() {
   const [selectedPhotos, setSelectedPhotos] = useState<{photos: PhotoLink[], suministro: string, initialIndex: number} | null>(null);
 
   // Estado para observaciones editables (por suministro)
+  // Se inicializa con los datos del servidor (notas) si existen
   const [observaciones, setObservaciones] = useState<Record<string, string>>({});
+
+  // Inicializar observaciones con los datos del servidor (campo notas) cuando cambian los puntos
+  useEffect(() => {
+    const initialObservaciones: Record<string, string> = {};
+    filteredPoints.forEach((point) => {
+      const extPoint = point as GpsPointExtended;
+      // Si el punto tiene notas del servidor, usarlas como valor inicial
+      if (extPoint.notas && extPoint.notas.trim() !== '') {
+        initialObservaciones[extPoint.suministro] = extPoint.notas;
+      }
+    });
+    // Solo actualizar si hay observaciones nuevas del servidor
+    if (Object.keys(initialObservaciones).length > 0) {
+      setObservaciones(prev => ({
+        ...initialObservaciones,
+        ...prev  // Preservar ediciones manuales del usuario
+      }));
+    }
+  }, [filteredPoints]);
 
   // Estado para PDF en proceso
   const [generatingPDF, setGeneratingPDF] = useState<string | null>(null);
@@ -313,6 +363,149 @@ export default function ReportesPage() {
       URL.revokeObjectURL(url);
 
       alert(`ZIP generado exitosamente!\n\nPDFs creados: ${successCount}\nErrores: ${errorCount}`);
+    } catch (error) {
+      console.error('Error generando ZIP:', error);
+      alert('Error al generar el archivo ZIP');
+    } finally {
+      setIsBatchExporting(false);
+      setBatchProgress({ current: 0, total: 0, currentFile: '' });
+    }
+  }, [sortedItems, observaciones, selectedSheet]);
+
+  // Calcular conteos por categoría de observación
+  // NOTA: Los items sin observación se cuentan como NO EJECUTADOS por defecto
+  const categoryCounts = useMemo(() => {
+    const counts = {
+      todos: sortedItems.length,
+      ejecutados: 0,
+      no_ejecutados: 0,
+      observaciones: 0
+    };
+
+    sortedItems.forEach(item => {
+      const obs = observaciones[item.suministro];
+      const category = getObservacionCategory(obs);
+
+      if (category === 'ejecutados') counts.ejecutados++;
+      else if (category === 'no_ejecutados') counts.no_ejecutados++;
+      else if (category === 'observaciones') counts.observaciones++;
+    });
+
+    return counts;
+  }, [sortedItems, observaciones]);
+
+  // Generar PDFs filtrados por categoría y empaquetarlos en ZIP
+  const handleBatchExportByCategory = useCallback(async (
+    category: ObservacionCategory,
+    withImages: boolean = false
+  ) => {
+    // Filtrar items según categoría
+    const filteredItems = category === 'todos'
+      ? sortedItems
+      : sortedItems.filter(item => {
+          const obs = observaciones[item.suministro];
+          return getObservacionCategory(obs) === category;
+        });
+
+    if (filteredItems.length === 0) {
+      alert(`No hay items en la categoría seleccionada.`);
+      return;
+    }
+
+    setShowBatchModal(false);
+    setIsBatchExporting(true);
+    setBatchProgress({ current: 0, total: filteredItems.length, currentFile: '' });
+
+    // Nombre del ZIP según categoría
+    const categoryNames: Record<ObservacionCategory, string> = {
+      todos: 'TODOS',
+      ejecutados: 'EJECUTADOS',
+      no_ejecutados: 'NO_EJECUTADOS',
+      observaciones: 'CON_OBSERVACIONES'
+    };
+
+    const zip = new JSZip();
+    const folderName = `Anexos_${categoryNames[category]}_${selectedSheet || 'Jornada'}_${new Date().toISOString().split('T')[0]}`;
+    const folder = zip.folder(folderName);
+
+    if (!folder) {
+      alert('Error creando carpeta ZIP');
+      setIsBatchExporting(false);
+      return;
+    }
+
+    let successCount = 0;
+    let errorCount = 0;
+
+    // Renumerar items filtrados
+    for (let i = 0; i < filteredItems.length; i++) {
+      const item = filteredItems[i];
+      setBatchProgress({
+        current: i + 1,
+        total: filteredItems.length,
+        currentFile: `${item.suministro} (${i + 1}/${filteredItems.length})`
+      });
+
+      try {
+        const pdfData: ReportePDFData = {
+          numero: i + 1, // Renumerar según el filtro
+          serie: item.serie,
+          suministro: item.suministro,
+          ruta: item.ruta,
+          lectura: item.lectura,
+          fechaContraste: item.fechaContraste,
+          fechaSupervision: item.fechaSupervision,
+          observacion: observaciones[item.suministro] || '',
+          photoLinks: item.photoLinks,
+          sheetName: selectedSheet || 'Sin Jornada'
+        };
+
+        let result: { blob: Blob; fileName: string };
+
+        if (withImages) {
+          result = await generateReportePDFBlob(pdfData);
+        } else {
+          result = generateReportePDFSimpleBlob(pdfData);
+        }
+
+        folder.file(result.fileName, result.blob);
+        successCount++;
+      } catch (error) {
+        console.error(`Error generando PDF para ${item.suministro}:`, error);
+        errorCount++;
+      }
+
+      // Pequeña pausa para no bloquear la UI
+      if (i % 10 === 0) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+    }
+
+    // Generar y descargar ZIP
+    try {
+      setBatchProgress(prev => ({ ...prev, currentFile: 'Comprimiendo ZIP...' }));
+      const zipBlob = await zip.generateAsync({
+        type: 'blob',
+        compression: 'DEFLATE',
+        compressionOptions: { level: 6 }
+      }, (metadata) => {
+        setBatchProgress(prev => ({
+          ...prev,
+          currentFile: `Comprimiendo: ${Math.round(metadata.percent)}%`
+        }));
+      });
+
+      // Descargar ZIP
+      const url = URL.createObjectURL(zipBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${folderName}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      alert(`ZIP generado exitosamente!\n\nCategoría: ${categoryNames[category]}\nPDFs creados: ${successCount}\nErrores: ${errorCount}`);
     } catch (error) {
       console.error('Error generando ZIP:', error);
       alert('Error al generar el archivo ZIP');
@@ -756,8 +949,8 @@ export default function ReportesPage() {
       {/* Modal de seleccion para batch export */}
       {showBatchModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
-            <div className="bg-red-600 px-6 py-4 flex items-center justify-between">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden max-h-[90vh] overflow-y-auto">
+            <div className="bg-red-600 px-6 py-4 flex items-center justify-between sticky top-0">
               <h3 className="text-lg font-semibold text-white flex items-center gap-2">
                 <Package size={20} />
                 Exportar PDFs como ZIP
@@ -770,33 +963,93 @@ export default function ReportesPage() {
               </button>
             </div>
             <div className="p-6">
-              <p className="text-gray-600 mb-4">
-                Se generaran <span className="font-bold text-red-600">{sortedItems.length}</span> anexos fotograficos
-                y se empaquetaran en un archivo ZIP.
-              </p>
+              {/* Resumen de categorías */}
+              <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                <h4 className="font-medium text-gray-700 mb-3">Resumen por Observacion:</h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between items-center">
+                    <span className="text-green-700">EJECUTADOS:</span>
+                    <span className="font-bold text-green-700">{categoryCounts.ejecutados}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <span className="text-red-700">NO EJECUTADOS:</span>
+                      <span className="text-xs text-gray-500 ml-1">(incluye sin obs.)</span>
+                    </div>
+                    <span className="font-bold text-red-700">{categoryCounts.no_ejecutados}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-amber-700">CON OBSERVACIONES:</span>
+                    <span className="font-bold text-amber-700">{categoryCounts.observaciones}</span>
+                  </div>
+                </div>
+                <div className="mt-3 pt-3 border-t border-gray-200 flex justify-between items-center">
+                  <span className="font-medium text-gray-700">TOTAL:</span>
+                  <span className="font-bold text-gray-900">{categoryCounts.todos}</span>
+                </div>
+              </div>
 
-              <div className="space-y-3">
+              {/* Exportar por categoría (con imágenes) */}
+              <h4 className="font-medium text-gray-700 mb-3">Exportar por Categoria (con imagenes):</h4>
+              <div className="space-y-2 mb-6">
+                <button
+                  onClick={() => handleBatchExportByCategory('ejecutados', true)}
+                  disabled={categoryCounts.ejecutados === 0}
+                  className="w-full px-4 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-between"
+                >
+                  <span className="flex items-center gap-2">
+                    <FileDown size={16} />
+                    EJECUTADOS
+                  </span>
+                  <span className="bg-green-700 px-2 py-0.5 rounded text-sm">{categoryCounts.ejecutados}</span>
+                </button>
+
+                <button
+                  onClick={() => handleBatchExportByCategory('no_ejecutados', true)}
+                  disabled={categoryCounts.no_ejecutados === 0}
+                  className="w-full px-4 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-between"
+                >
+                  <span className="flex items-center gap-2">
+                    <FileDown size={16} />
+                    NO EJECUTADOS
+                  </span>
+                  <span className="bg-red-700 px-2 py-0.5 rounded text-sm">{categoryCounts.no_ejecutados}</span>
+                </button>
+
+                <button
+                  onClick={() => handleBatchExportByCategory('observaciones', true)}
+                  disabled={categoryCounts.observaciones === 0}
+                  className="w-full px-4 py-2.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-between"
+                >
+                  <span className="flex items-center gap-2">
+                    <FileDown size={16} />
+                    CON OBSERVACIONES
+                  </span>
+                  <span className="bg-amber-700 px-2 py-0.5 rounded text-sm">{categoryCounts.observaciones}</span>
+                </button>
+              </div>
+
+              {/* Separador */}
+              <div className="border-t border-gray-200 my-4"></div>
+
+              {/* Exportar todos */}
+              <h4 className="font-medium text-gray-700 mb-3">Exportar TODOS ({sortedItems.length}):</h4>
+              <div className="space-y-2">
                 <button
                   onClick={() => handleBatchExport(false)}
-                  className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2"
+                  className="w-full px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2"
                 >
-                  <FileDown size={18} />
-                  Sin imagenes (rapido)
+                  <FileDown size={16} />
+                  Todos sin imagenes (rapido)
                 </button>
-                <p className="text-xs text-gray-500 text-center -mt-1">
-                  PDFs con links a las fotos. Recomendado para +50 registros.
-                </p>
 
                 <button
                   onClick={() => handleBatchExport(true)}
-                  className="w-full px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center justify-center gap-2"
+                  className="w-full px-4 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center justify-center gap-2"
                 >
-                  <FileDown size={18} />
-                  Con imagenes (lento)
+                  <FileDown size={16} />
+                  Todos con imagenes (lento)
                 </button>
-                <p className="text-xs text-gray-500 text-center -mt-1">
-                  PDFs con fotos embebidas. Puede tardar varios minutos.
-                </p>
               </div>
 
               <button
