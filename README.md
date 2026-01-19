@@ -219,7 +219,7 @@ Usada para hojas creadas desde el Dashboard.
 | AD | Foto_Count | Cantidad de fotos |
 | AE | Photo_Links | JSON con links de fotos |
 | AF | Synced_At | Fecha de sincronizacion |
-| AG | Notas | Notas adicionales |
+| AG | Notas | Observacion de contrastacion (SI/NO/texto personalizado) |
 
 **Importante - Fila Fuente vs Fila Foto:**
 - Columna A **vacia** = Fila fuente (datos originales del Excel)
@@ -332,6 +332,7 @@ c:\PROGRAMACION\Apptelcom\timestamp_camera\google_apps_script\Code.gs
 ### 5. Reportes (ReportesPage.tsx)
 - Tabla de suministros con lectura registrada
 - Campo de observacion editable por suministro
+- Carga automatica de observaciones desde servidor (campo `notas`)
 - Generacion de PDF individual (Anexo Fotografico)
 - **Exportar masivo a ZIP** (nuevo v1.3.0):
   - Boton "Exportar X PDFs" genera todos los anexos
@@ -339,6 +340,14 @@ c:\PROGRAMACION\Apptelcom\timestamp_camera\google_apps_script\Code.gs
   - Opcion "Con imagenes" (lento) - PDFs con fotos embebidas
   - Barra de progreso en tiempo real
   - Descarga automatica del archivo ZIP
+- **Exportar por Categoria de Observacion** (nuevo v1.5.0):
+  - Clasificacion automatica por tipo de observacion:
+    - **EJECUTADOS** (verde): Contrastacion realizada
+    - **NO EJECUTADOS** (rojo): Contrastacion no realizada + sin observacion
+    - **CON OBSERVACIONES** (ambar): Observaciones personalizadas
+  - Resumen visual de conteos por categoria en modal
+  - Exportar ZIP separado por cada categoria (con imagenes)
+  - Items sin observacion se consideran NO EJECUTADOS por defecto
 
 ### 6. Usuarios (UsersPage.tsx) - Solo ADMIN
 - Tabla de usuarios con estado
@@ -568,6 +577,20 @@ La app movil Flutter v2.2.0 ahora incluye:
 ---
 
 ## Historial de Cambios Recientes
+
+### v1.5.0 (19/01/2026) - Exportacion por Categoria de Observacion
+- **NEW:** Clasificacion automatica de observaciones desde app movil
+  - `EJECUTADOS`: "CONTRATISTA MALCOM EJECUTO EL CONTRASTE EN LA FECHA PROGRAMADA"
+  - `NO EJECUTADOS`: "CONTRATISTA MALCOM NO EJECUTA EL CONTRASTE EN LA FECHA PROGRAMADA"
+  - `CON OBSERVACIONES`: Cualquier texto personalizado
+- **NEW:** Resumen visual por categoria en modal de exportacion
+- **NEW:** Botones de exportacion por categoria (con imagenes):
+  - EJECUTADOS (verde)
+  - NO EJECUTADOS (rojo) - incluye items sin observacion
+  - CON OBSERVACIONES (ambar)
+- **NEW:** Carga automatica de observaciones del servidor (campo `notas`) al cargar pagina
+- **NEW:** ZIP nombrado por categoria: `Anexos_EJECUTADOS_Jornada_2026-01-19.zip`
+- **IMP:** Items sin observacion se clasifican como NO EJECUTADOS por defecto
 
 ### v1.4.0 (26/12/2025) - Despliegue a GitHub Pages
 - **NEW:** Repositorio publico en GitHub: https://github.com/Canazachyub/Telcomdashboard
