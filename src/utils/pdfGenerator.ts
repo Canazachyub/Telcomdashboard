@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf';
 import type { PhotoLink } from '../types/point';
-import { extractDriveFileId } from './driveUtils';
+import { getImageBase64 } from '../services/observadosService';
 
 // Observacion por defecto
 export const DEFAULT_OBSERVACION = 'CONTRATISTA MALCOM NO EJECUTA EL CONTRASTE EN LA FECHA PROGRAMADA';
@@ -30,101 +30,24 @@ const COLORS = {
   border: { r: 209, g: 213, b: 219 },     // Gris borde
 };
 
-// Obtener todas las URLs posibles para una imagen de Google Drive
-function getDriveUrls(url: string): string[] {
-  const fileId = extractDriveFileId(url);
-  if (fileId) {
-    return [
-      `https://lh3.googleusercontent.com/d/${fileId}=w800`,
-      `https://drive.google.com/thumbnail?id=${fileId}&sz=w800`,
-      `https://drive.google.com/uc?export=view&id=${fileId}`,
-      `https://drive.google.com/uc?id=${fileId}`,
-    ];
-  }
-  // Si no es URL de Drive, devolver la URL original
-  return [url];
-}
-
-// Cargar una imagen desde una URL con timeout
-function loadImageFromUrl(imageUrl: string, timeout: number = 15000): Promise<HTMLImageElement | null> {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-
-    const timer = setTimeout(() => {
-      img.src = '';
-      resolve(null);
-    }, timeout);
-
-    img.onload = () => {
-      clearTimeout(timer);
-      resolve(img);
-    };
-
-    img.onerror = () => {
-      clearTimeout(timer);
-      resolve(null);
-    };
-
-    img.src = imageUrl;
-  });
-}
-
-// Convertir imagen a base64
-function imageToBase64(img: HTMLImageElement): string | null {
-  try {
-    const canvas = document.createElement('canvas');
-    const maxSize = 800;
-    let width = img.width;
-    let height = img.height;
-
-    if (width > maxSize || height > maxSize) {
-      const ratio = Math.min(maxSize / width, maxSize / height);
-      width = width * ratio;
-      height = height * ratio;
-    }
-
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      ctx.drawImage(img, 0, 0, width, height);
-      return canvas.toDataURL('image/jpeg', 0.85);
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-// Convertir imagen de URL a base64 con reintentos
+// Cargar imagen como base64 usando el endpoint del backend (evita CORS)
 async function loadImageAsBase64(url: string): Promise<string | null> {
   if (!url || url.trim() === '') {
     return null;
   }
 
-  const urls = getDriveUrls(url);
-
-  // Intentar cada URL en orden
-  for (const imageUrl of urls) {
-    const img = await loadImageFromUrl(imageUrl, 15000);
-    if (img && img.width > 0 && img.height > 0) {
-      const base64 = imageToBase64(img);
-      if (base64) {
-        return base64;
-      }
+  try {
+    const response = await getImageBase64(url);
+    if (response && response.success && response.base64) {
+      // Construir data URL
+      const mimeType = response.mimeType || 'image/jpeg';
+      return `data:${mimeType};base64,${response.base64}`;
     }
-    // Pequeña pausa entre intentos para no saturar
-    await new Promise(r => setTimeout(r, 200));
+    return null;
+  } catch (error) {
+    console.error('Error cargando imagen:', error);
+    return null;
   }
-
-  // Si todas fallan, intentar una vez más con la primera URL y más tiempo
-  const lastTry = await loadImageFromUrl(urls[0], 20000);
-  if (lastTry && lastTry.width > 0 && lastTry.height > 0) {
-    return imageToBase64(lastTry);
-  }
-
-  return null;
 }
 
 // Cargar multiples imagenes secuencialmente (evita saturar el servidor)
@@ -136,9 +59,9 @@ async function loadImagesSequentially(photos: PhotoLink[]): Promise<(string | nu
     const base64 = await loadImageAsBase64(photo.url);
     results.push(base64);
 
-    // Pausa entre cada imagen para evitar rate limiting
+    // Pausa entre cada imagen para no sobrecargar
     if (i < photos.length - 1) {
-      await new Promise(r => setTimeout(r, 300));
+      await new Promise(r => setTimeout(r, 100));
     }
   }
 
@@ -438,7 +361,7 @@ export async function generateReportePDF(data: ReportePDFData): Promise<void> {
   );
 
   // Guardar PDF
-  const fileName = `Anexo_${data.suministro}_${data.numero}.pdf`;
+  const fileName = `Anexo_${data.suministro}.pdf`;
   doc.save(fileName);
 }
 
@@ -656,7 +579,7 @@ export async function generateReportePDFBlob(data: ReportePDFData): Promise<{ bl
   );
 
   // Retornar como Blob
-  const fileName = `Anexo_${data.suministro}_${data.numero}.pdf`;
+  const fileName = `Anexo_${data.suministro}.pdf`;
   const blob = doc.output('blob');
   return { blob, fileName };
 }
@@ -805,7 +728,7 @@ export function generateReportePDFSimpleBlob(data: ReportePDFData): { blob: Blob
     { align: 'center' }
   );
 
-  const fileName = `Anexo_${data.suministro}_${data.numero}.pdf`;
+  const fileName = `Anexo_${data.suministro}.pdf`;
   const blob = doc.output('blob');
   return { blob, fileName };
 }
@@ -971,6 +894,6 @@ export function generateReportePDFSimple(data: ReportePDFData): void {
     { align: 'center' }
   );
 
-  const fileName = `Anexo_${data.suministro}_${data.numero}.pdf`;
+  const fileName = `Anexo_${data.suministro}.pdf`;
   doc.save(fileName);
 }

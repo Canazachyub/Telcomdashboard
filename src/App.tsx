@@ -8,6 +8,7 @@ import SuministrosPage from './pages/SuministrosPage';
 import UsersPage from './pages/UsersPage';
 import JornadasPage from './pages/JornadasPage';
 import ReportesPage from './pages/ReportesPage';
+import ReportesObservadosPage from './pages/ReportesObservadosPage';
 import InventoryPage from './pages/InventoryPage';
 
 // Componente para rutas protegidas
@@ -83,6 +84,14 @@ function App() {
             element={
               <SupervisorRoute>
                 <ReportesPage />
+              </SupervisorRoute>
+            }
+          />
+          <Route
+            path="observados"
+            element={
+              <SupervisorRoute>
+                <ReportesObservadosPage />
               </SupervisorRoute>
             }
           />

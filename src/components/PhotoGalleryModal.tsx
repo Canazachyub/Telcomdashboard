@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   X, ChevronLeft, ChevronRight, ExternalLink, Camera,
   Maximize2, Grid, Image as ImageIcon
 } from 'lucide-react';
 import type { PhotoLink } from '../types/point';
-import { getDriveThumbnailUrl, getDriveImageUrl } from '../utils/driveUtils';
+import { getImageBase64 } from '../services/observadosService';
 
 interface PhotoGalleryModalProps {
   photos: PhotoLink[];
@@ -13,7 +13,33 @@ interface PhotoGalleryModalProps {
   onClose: () => void;
 }
 
-// Componente de imagen con loading y fallback
+// Cache global de imágenes para evitar recargas
+const imageCache = new Map<string, string>();
+
+// Función para cargar imagen con cache
+async function loadImageWithCache(url: string): Promise<string | null> {
+  if (!url) return null;
+
+  // Verificar cache primero
+  if (imageCache.has(url)) {
+    return imageCache.get(url)!;
+  }
+
+  try {
+    const response = await getImageBase64(url);
+    if (response?.success && response.base64) {
+      const mimeType = response.mimeType || 'image/jpeg';
+      const dataUrl = `data:${mimeType};base64,${response.base64}`;
+      imageCache.set(url, dataUrl);
+      return dataUrl;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// Componente de miniatura con lazy loading y cache
 function PhotoThumbnail({
   photo,
   isSelected,
@@ -25,10 +51,60 @@ function PhotoThumbnail({
 }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
-  const thumbnailUrl = getDriveThumbnailUrl(photo.url, 'w200');
+  const [imageData, setImageData] = useState<string | null>(null);
+  const [isVisible, setIsVisible] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Lazy loading con IntersectionObserver
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '100px' } // Precargar un poco antes de que sea visible
+    );
+
+    if (containerRef.current) {
+      observer.observe(containerRef.current);
+    }
+
+    return () => observer.disconnect();
+  }, []);
+
+  // Cargar imagen solo cuando es visible
+  useEffect(() => {
+    if (!isVisible || !photo.url) return;
+
+    let cancelled = false;
+
+    // Verificar cache primero (instantáneo)
+    if (imageCache.has(photo.url)) {
+      setImageData(imageCache.get(photo.url)!);
+      setLoading(false);
+      return;
+    }
+
+    async function loadImage() {
+      const data = await loadImageWithCache(photo.url);
+      if (cancelled) return;
+      if (data) {
+        setImageData(data);
+      } else {
+        setError(true);
+      }
+      setLoading(false);
+    }
+
+    loadImage();
+    return () => { cancelled = true; };
+  }, [isVisible, photo.url]);
 
   return (
     <div
+      ref={containerRef}
       onClick={onClick}
       className={`relative aspect-square rounded-lg overflow-hidden cursor-pointer transition-all ${
         isSelected
@@ -41,22 +117,17 @@ function PhotoThumbnail({
           <div className="animate-spin rounded-full h-6 w-6 border-2 border-white/30 border-t-white"></div>
         </div>
       )}
-      {!error ? (
+      {!error && imageData ? (
         <img
-          src={thumbnailUrl}
+          src={imageData}
           alt={`Foto #${photo.numero}`}
           className={`w-full h-full object-cover transition-opacity ${loading ? 'opacity-0' : 'opacity-100'}`}
-          onLoad={() => setLoading(false)}
-          onError={() => {
-            setError(true);
-            setLoading(false);
-          }}
         />
-      ) : (
+      ) : !loading ? (
         <div className="absolute inset-0 bg-gray-700 flex flex-col items-center justify-center text-gray-400">
           <Camera size={24} />
         </div>
-      )}
+      ) : null}
       <div className="absolute bottom-1 left-1 bg-black/70 text-white text-xs px-1.5 py-0.5 rounded">
         #{photo.numero}
       </div>
@@ -169,36 +240,59 @@ export default function PhotoGalleryModal({
     window.open(currentPhoto.url, '_blank');
   };
 
-  // URLs para intentar cargar la imagen (en orden de prioridad)
-  // 1. Thumbnail grande (más confiable)
-  // 2. lh3.googleusercontent.com (mejor calidad pero menos confiable)
-  const thumbnailUrl = getDriveThumbnailUrl(currentPhoto.url, 'w2000');
-  const lh3Url = getDriveImageUrl(currentPhoto.url);
+  // Estado para la imagen cargada desde el backend (evita CORS)
+  const [mainImageData, setMainImageData] = useState<string | null>(null);
 
-  // Estado para manejar el fallback de URLs
-  const [currentImageUrl, setCurrentImageUrl] = useState(thumbnailUrl);
-  const [urlAttempt, setUrlAttempt] = useState(0);
-
-  // Reset cuando cambia la foto
+  // Cargar imagen cuando cambia la foto actual (con cache)
   useEffect(() => {
-    setCurrentImageUrl(getDriveThumbnailUrl(currentPhoto.url, 'w2000'));
-    setUrlAttempt(0);
-    setLoading(true);
+    let cancelled = false;
     setError(false);
-  }, [currentPhoto.url]);
 
-  const handleImageError = () => {
-    if (urlAttempt === 0) {
-      // Primer intento falló (thumbnail), intentar con lh3
-      setUrlAttempt(1);
-      setCurrentImageUrl(lh3Url);
-      setLoading(true);
+    // Verificar cache primero (instantáneo)
+    if (imageCache.has(currentPhoto.url)) {
+      setMainImageData(imageCache.get(currentPhoto.url)!);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    setMainImageData(null);
+
+    async function loadMainImage() {
+      const data = await loadImageWithCache(currentPhoto.url);
+      if (cancelled) return;
+      if (data) {
+        setMainImageData(data);
+      } else {
+        setError(true);
+      }
+      setLoading(false);
+    }
+
+    if (currentPhoto.url) {
+      loadMainImage();
     } else {
-      // Todos los intentos fallaron
       setError(true);
       setLoading(false);
     }
-  };
+
+    return () => { cancelled = true; };
+  }, [currentPhoto.url]);
+
+  // Precargar imágenes adyacentes (siguiente y anterior)
+  useEffect(() => {
+    const preloadIndexes = [currentIndex - 1, currentIndex + 1];
+
+    preloadIndexes.forEach(index => {
+      if (index >= 0 && index < photos.length) {
+        const photo = photos[index];
+        if (photo?.url && !imageCache.has(photo.url)) {
+          // Precargar en segundo plano
+          loadImageWithCache(photo.url);
+        }
+      }
+    });
+  }, [currentIndex, photos]);
 
   return (
     <div className="fixed inset-0 z-[1000] bg-black/95 flex flex-col">
@@ -268,15 +362,13 @@ export default function PhotoGalleryModal({
                   </div>
                 )}
 
-                {!error ? (
+                {!error && mainImageData ? (
                   <img
-                    src={currentImageUrl}
+                    src={mainImageData}
                     alt={`Foto #${currentPhoto.numero}`}
                     className={`max-w-full max-h-[75vh] object-contain rounded-lg bg-gray-900 transition-opacity ${loading ? 'opacity-0' : 'opacity-100'}`}
-                    onLoad={() => setLoading(false)}
-                    onError={handleImageError}
                   />
-                ) : (
+                ) : !loading ? (
                   <div className="flex flex-col items-center justify-center text-gray-400">
                     <Camera size={64} className="mb-4" />
                     <p className="text-lg mb-2">No se pudo cargar la imagen</p>
@@ -287,7 +379,7 @@ export default function PhotoGalleryModal({
                       Abrir en Google Drive
                     </button>
                   </div>
-                )}
+                ) : null}
               </div>
 
               {currentIndex < photos.length - 1 && (

@@ -12,6 +12,7 @@ import {
   ClipboardList,
   Calendar,
   Package,
+  AlertCircle,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuthStore } from '../../stores/authStore';
@@ -62,6 +63,12 @@ const menuItems: MenuItem[] = [
     name: 'Reportes',
     path: '/reportes',
     icon: <FileText size={20} />,
+    roles: ['admin', 'supervisor'],
+  },
+  {
+    name: 'Observados',
+    path: '/observados',
+    icon: <AlertCircle size={20} />,
     roles: ['admin', 'supervisor'],
   },
 ];
