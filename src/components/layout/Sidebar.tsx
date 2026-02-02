@@ -13,6 +13,7 @@ import {
   Calendar,
   Package,
   AlertCircle,
+  Navigation,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuthStore } from '../../stores/authStore';
@@ -69,6 +70,12 @@ const menuItems: MenuItem[] = [
     name: 'Observados',
     path: '/observados',
     icon: <AlertCircle size={20} />,
+    roles: ['admin', 'supervisor'],
+  },
+  {
+    name: 'Rastreo GPS',
+    path: '/rastreo',
+    icon: <Navigation size={20} />,
     roles: ['admin', 'supervisor'],
   },
 ];

@@ -90,6 +90,9 @@ c:\PROGRAMACION\TelcomDashboard\
 │   │   │   ├── Sidebar.tsx          # Menu lateral con navegacion por rol
 │   │   │   ├── Header.tsx           # Barra superior con usuario y logout
 │   │   │   └── Layout.tsx           # Wrapper principal
+│   │   ├── gps/                     # Componentes de Rastreo GPS (NEW v1.6.0)
+│   │   │   ├── GPSPanel.tsx         # Panel lateral con lista de tecnicos
+│   │   │   └── GPSMarker.tsx        # Marcador de tecnico en mapa
 │   │   └── PhotoGalleryModal.tsx    # Modal galeria de fotos
 │   │
 │   ├── pages/
@@ -100,21 +103,25 @@ c:\PROGRAMACION\TelcomDashboard\
 │   │   ├── JornadasPage.tsx         # Gestion de hojas/jornadas
 │   │   ├── ReportesPage.tsx         # Generacion de reportes PDF
 │   │   ├── InventoryPage.tsx        # Gestion de inventario de equipos
+│   │   ├── RastreoPage.tsx          # Rastreo GPS por fotos (NEW v1.6.0)
 │   │   └── UsersPage.tsx            # CRUD de usuarios (solo ADMIN)
 │   │
 │   ├── stores/
 │   │   ├── authStore.ts             # Estado de autenticacion (Zustand)
-│   │   └── pointsStore.ts           # Estado de puntos/suministros
+│   │   ├── pointsStore.ts           # Estado de puntos/suministros
+│   │   └── gpsStore.ts              # Estado de rastreo GPS por fotos (NEW v1.6.0)
 │   │
 │   ├── services/
 │   │   ├── api.ts                   # Cliente HTTP base
 │   │   ├── authService.ts           # login, getUsers, createUser, etc.
 │   │   ├── pointsService.ts         # getAllPointsExtended, getStats
-│   │   └── tecnicoService.ts        # getTecnicos, assignTecnico
+│   │   ├── tecnicoService.ts        # getTecnicos, assignTecnico
+│   │   └── gpsService.ts            # Rastreo GPS desde fotos (NEW v1.6.0)
 │   │
 │   ├── types/
 │   │   ├── user.ts                  # Interface User
 │   │   ├── point.ts                 # GpsPoint, GpsPointExtended
+│   │   ├── gps.ts                   # Tipos GPS: ODTTecnico, GPSEntity (NEW v1.6.0)
 │   │   └── react-leaflet-draw.d.ts  # Tipos para leaflet-draw
 │   │
 │   ├── utils/
@@ -274,7 +281,8 @@ c:\PROGRAMACION\Apptelcom\timestamp_camera\google_apps_script\Code.gs
 | `getStats` | `sheetName` | Estadisticas por estado/tecnico/distrito |
 | `getSheetMetadata` | - | Metadata de todas las hojas |
 | `initUsersSheet` | - | Crear hoja Usuarios con admin |
-| `getSuministrosByTecnico` | `sheetName`, `tecnico` | **NUEVO** Suministros asignados a un tecnico |
+| `getSuministrosByTecnico` | `sheetName`, `tecnico` | Suministros asignados a un tecnico |
+| `getTrackingFromPhotos` | - | **NEW v1.6.0** Ubicacion de tecnicos basada en ultima foto |
 
 ### POST Endpoints
 
@@ -356,6 +364,55 @@ c:\PROGRAMACION\Apptelcom\timestamp_camera\google_apps_script\Code.gs
 - Desactivar/activar usuario
 - Cambiar contraseña
 - Desbloquear usuario (reset intentos fallidos)
+
+### 7. Rastreo GPS por Fotos (RastreoPage.tsx) - NEW v1.6.0
+
+Sistema de rastreo de tecnicos basado en la ubicacion de su ultima foto sincronizada.
+
+**Caracteristicas:**
+- **Mapa interactivo** con marcadores de tecnicos (iniciales del nombre)
+- **Panel lateral** con lista de tecnicos y estadisticas
+- **Estados de actividad:**
+  - 🟢 **Activo**: Ultima foto hace menos de 2 horas
+  - ⚪ **Inactivo**: Ultima foto hace mas de 2 horas
+- **Informacion por tecnico:**
+  - Nombre y telefono
+  - Coordenadas de ultima ubicacion
+  - Tiempo transcurrido desde ultima foto
+  - Enlace para ver la ultima foto
+- **Auto-refresh** configurable (default: 60 segundos)
+- **Filtros:** Buscar por nombre, mostrar solo activos
+
+**Arquitectura:**
+```
+App Movil (Flutter)                Dashboard (React)
+     │                                   │
+     │ Toma foto con GPS                 │
+     ▼                                   │
+Google Sheets                            │
+  └── _ODT_Tecnicos                      │
+       ├── ID (8 chars)                  │
+       ├── Nombre                        │
+       ├── Telefono                      │
+       ├── Ultima Foto (timestamp)       │
+       ├── Lat/Long                      │
+       └── FotosCount                    │
+                                         │
+                    getTrackingFromPhotos│
+                    ◄────────────────────┤
+                                         ▼
+                                    RastreoPage
+                                         │
+                                    ┌────┴────┐
+                                    │  Mapa   │
+                                    │ Markers │
+                                    └─────────┘
+```
+
+**Diferencia con GPS tradicional:**
+- NO requiere app GPS separada ni tracker externo
+- Usa las coordenadas EXIF de las fotos que ya toman los tecnicos
+- Ubicacion "pasiva" - se actualiza cada vez que sincronizan fotos
 
 ---
 
@@ -577,6 +634,34 @@ La app movil Flutter v2.2.0 ahora incluye:
 ---
 
 ## Historial de Cambios Recientes
+
+### v1.6.0 (02/02/2026) - Rastreo GPS por Fotos (ODT)
+
+Sistema de rastreo de tecnicos basado en ubicacion de ultima foto sincronizada.
+
+**Backend (Code.gs):**
+- **NEW:** Hoja `_ODT_Tecnicos` para registro de operadores
+- **NEW:** Funcion `handleGetTrackingFromPhotos()` - obtiene ubicacion desde fotos
+- **NEW:** Funcion `incrementODTFotoCount()` - contador de fotos por tecnico
+- **NEW:** Endpoint `?action=getTrackingFromPhotos` en doGet
+- **MOD:** `savePhotoExtended()` actualiza ubicacion del tecnico al sincronizar
+
+**Frontend (Dashboard):**
+- **NEW:** Pagina `RastreoPage.tsx` - mapa de rastreo GPS
+- **NEW:** Componente `GPSPanel.tsx` - panel lateral con lista de tecnicos
+- **NEW:** Componente `GPSMarker.tsx` - marcador personalizado con inicial
+- **NEW:** Store `gpsStore.ts` - estado Zustand para rastreo
+- **NEW:** Service `gpsService.ts` - comunicacion con API de rastreo
+- **NEW:** Types `gps.ts` - interfaces ODTTecnico, GPSEntity, GPSStats
+- **NEW:** Ruta `/rastreo` en sidebar para acceso rapido
+- **NEW:** Auto-refresh cada 60 segundos
+
+**App Movil (Flutter):**
+- **NEW:** Sistema ODT (Operator Device Tracking) con ID de 8 caracteres
+- **NEW:** Modelo `UserProfile` con generacion automatica de ID
+- **NEW:** Pantalla de configuracion de perfil del tecnico
+- **NEW:** ID ODT se envia con cada foto sincronizada
+- **MOD:** IDs reducidos de 32 hex a 8 alfanumericos (218 billones combinaciones)
 
 ### v1.5.0 (19/01/2026) - Exportacion por Categoria de Observacion
 - **NEW:** Clasificacion automatica de observaciones desde app movil

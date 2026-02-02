@@ -6,6 +6,16 @@ export const API_POINTS = 'https://script.google.com/macros/s/AKfycbyeqP84CJ2cva
 // API de administración del dashboard
 export const API_ADMIN = 'https://script.google.com/macros/s/AKfycbxoqTqUnl-VqSYAR04i570c6X_OG9WaPsl5s3azylV_XSmiySDOz1-MwjhpiAyA4Zlv/exec';
 
+// API de Rastreo GPS
+export const API_GPS = 'https://script.google.com/macros/s/AKfycbzPfBo-b3kDghsd9OzeWuPK-NwXhsNkDaspRlhIU8-RS1hrmVNoekP5lKtBFjqRgkQu/exec';
+
+// Configuración de actualización GPS
+export const GPS_UPDATE_CONFIG = {
+  mapRefreshInterval: 600000,  // Actualizar mapa cada 10 minutos
+  locationSendInterval: 30000, // Enviar ubicación cada 30 segundos (PWA)
+  offlineThreshold: 900000,    // 15 minutos para considerar offline
+};
+
 // Configuración del mapa
 export const MAP_CONFIG = {
   defaultCenter: [-15.8402, -70.0219] as [number, number], // Puno, Perú

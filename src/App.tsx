@@ -10,6 +10,8 @@ import JornadasPage from './pages/JornadasPage';
 import ReportesPage from './pages/ReportesPage';
 import ReportesObservadosPage from './pages/ReportesObservadosPage';
 import InventoryPage from './pages/InventoryPage';
+import RastreoPage from './pages/RastreoPage';
+import TrackerPWA from './pages/TrackerPWA';
 
 // Componente para rutas protegidas
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -104,6 +106,16 @@ function App() {
             }
           />
 
+          {/* Rastreo GPS */}
+          <Route
+            path="rastreo"
+            element={
+              <SupervisorRoute>
+                <RastreoPage />
+              </SupervisorRoute>
+            }
+          />
+
           {/* Rutas solo para admin */}
           <Route
             path="usuarios"
@@ -114,6 +126,9 @@ function App() {
             }
           />
         </Route>
+
+        {/* PWA Tracker (público para trabajadores) */}
+        <Route path="/tracker/:id" element={<TrackerPWA />} />
 
         {/* Redirección por defecto */}
         <Route path="*" element={<Navigate to="/" replace />} />

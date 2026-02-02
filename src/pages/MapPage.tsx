@@ -70,22 +70,30 @@ function MapController({
 }
 
 // Crear marcador personalizado con color y tamaño configurable
+// Si odtColor está disponible, lo usa para el color interior con borde de estado
 function createCustomIcon(
   status: 'pendiente' | 'en_proceso' | 'completado',
-  isHighlighted: boolean = false
+  isHighlighted: boolean = false,
+  odtColor?: string | null
 ) {
-  const color = getStatusColor(status);
+  const statusColor = getStatusColor(status);
   const size = isHighlighted ? 32 : 24;
   const borderWidth = isHighlighted ? 4 : 3;
+
+  // Si hay color ODT y el punto tiene foto, mostrar color del técnico
+  // con borde del color de estado
+  const hasOdtColor = odtColor && odtColor.startsWith('#');
+  const bgColor = hasOdtColor ? odtColor : statusColor;
+  const borderColor = isHighlighted ? '#2563eb' : (hasOdtColor ? statusColor : 'white');
 
   return new DivIcon({
     html: `
       <div style="
-        background-color: ${color};
+        background-color: ${bgColor};
         width: ${size}px;
         height: ${size}px;
         border-radius: 50%;
-        border: ${borderWidth}px solid ${isHighlighted ? '#2563eb' : 'white'};
+        border: ${borderWidth}px solid ${borderColor};
         box-shadow: 0 2px 8px rgba(0,0,0,${isHighlighted ? 0.5 : 0.3});
         ${isHighlighted ? 'animation: pulse 1s infinite;' : ''}
       "></div>
@@ -950,8 +958,9 @@ export default function MapPage() {
 
             const status = getPointStatus(point);
             const isHighlighted = highlightedPointId === point.suministro;
-            const icon = createCustomIcon(status, isHighlighted);
             const extPoint = point as GpsPointExtended;
+            // Usar color ODT si está disponible (técnico que tomó la foto)
+            const icon = createCustomIcon(status, isHighlighted, extPoint.odtColor);
 
             return (
               <Marker
@@ -1008,6 +1017,17 @@ export default function MapPage() {
                         <span className="text-gray-500">Fotos:</span>{' '}
                         <span className="font-medium">{point.photoCount}</span>
                       </p>
+
+                      {extPoint.odtNombre && (
+                        <p className="flex items-center gap-1">
+                          <span className="text-gray-500">Fotografo:</span>{' '}
+                          <span
+                            className="w-3 h-3 rounded-full inline-block"
+                            style={{ backgroundColor: extPoint.odtColor || '#888' }}
+                          ></span>
+                          <span className="font-medium">{extPoint.odtNombre}</span>
+                        </p>
+                      )}
 
                       {extPoint.distrito && (
                         <p>

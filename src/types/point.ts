@@ -6,6 +6,10 @@ export interface PhotoLink {
   fecha: string;
   numero: number;
   lectura?: number | string | null;  // Lectura asociada a esta foto
+  // ODT - Identificación del técnico que tomó esta foto
+  odtId?: string | null;
+  odtNombre?: string | null;
+  odtColor?: string | null;
 }
 
 // Punto GPS básico (compatible con legacy)
@@ -64,6 +68,11 @@ export interface GpsPointExtended extends GpsPoint {
   // photoLinks ya está en GpsPoint   // AE: Photo_Links
   syncedAt: string | null;         // AF: Synced_At
   notas: string | null;            // AG: Notas
+
+  // Columnas AH-AJ (ODT - Operator Device Tracking)
+  odtId: string | null;            // AH: ODT_ID (ID único del técnico)
+  odtNombre: string | null;        // AI: ODT_Nombre (Nombre del técnico)
+  odtColor: string | null;         // AJ: ODT_Color (Color hexadecimal)
 
   // Campo calculado: Fecha de supervisión (de la fila con lectura)
   fechaSupervision: string | null;
