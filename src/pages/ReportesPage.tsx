@@ -597,7 +597,7 @@ export default function ReportesPage() {
           </h1>
           <p className="text-gray-500">
             {selectedSheet
-              ? `SUPERVISION DE PROGRAMACION - P227 - ${selectedSheet}`
+              ? `SUPERVISION DE PROGRAMACION - ${selectedSheet}`
               : 'Selecciona una jornada'}
           </p>
         </div>

@@ -164,7 +164,7 @@ export async function generateReportePDF(data: ReportePDFData): Promise<void> {
 
   // Linea de supervision
   doc.setFontSize(9);
-  const supervisionText = `SUPERVISION DE PROGRAMACION - P227 - ${data.sheetName}`;
+  const supervisionText = `SUPERVISION DE PROGRAMACION - ${data.sheetName}`;
   doc.text(supervisionText, pageWidth / 2, 24, { align: 'center' });
 
   yPos = headerHeight + 6;
@@ -397,7 +397,7 @@ export async function generateReportePDFBlob(data: ReportePDFData): Promise<{ bl
   doc.text('ANEXO FOTOGRAFICO', pageWidth / 2, 17, { align: 'center' });
 
   doc.setFontSize(9);
-  const supervisionText = `SUPERVISION DE PROGRAMACION - P227 - ${data.sheetName}`;
+  const supervisionText = `SUPERVISION DE PROGRAMACION - ${data.sheetName}`;
   doc.text(supervisionText, pageWidth / 2, 24, { align: 'center' });
 
   yPos = headerHeight + 6;
@@ -616,7 +616,7 @@ export function generateReportePDFSimpleBlob(data: ReportePDFData): { blob: Blob
   doc.text('ANEXO FOTOGRAFICO', pageWidth / 2, 17, { align: 'center' });
 
   doc.setFontSize(9);
-  doc.text(`SUPERVISION DE PROGRAMACION - P227 - ${data.sheetName}`, pageWidth / 2, 24, { align: 'center' });
+  doc.text(`SUPERVISION DE PROGRAMACION - ${data.sheetName}`, pageWidth / 2, 24, { align: 'center' });
 
   yPos = headerHeight + 6;
 
@@ -782,7 +782,7 @@ export function generateReportePDFSimple(data: ReportePDFData): void {
   doc.text('ANEXO FOTOGRAFICO', pageWidth / 2, 17, { align: 'center' });
 
   doc.setFontSize(9);
-  doc.text(`SUPERVISION DE PROGRAMACION - P227 - ${data.sheetName}`, pageWidth / 2, 24, { align: 'center' });
+  doc.text(`SUPERVISION DE PROGRAMACION - ${data.sheetName}`, pageWidth / 2, 24, { align: 'center' });
 
   yPos = headerHeight + 6;
 
