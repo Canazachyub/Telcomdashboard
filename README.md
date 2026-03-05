@@ -635,6 +635,14 @@ La app movil Flutter v2.2.0 ahora incluye:
 
 ## Historial de Cambios Recientes
 
+### v1.6.1 (05/03/2026) - Correccion texto de supervision en PDFs
+
+- **FIX:** Eliminado codigo de proyecto "P227" hardcodeado del texto de supervision en PDFs
+  - Antes: `SUPERVISION DE PROGRAMACION - P227 - CO-P227-2026-SEM04-CUS`
+  - Ahora: `SUPERVISION DE PROGRAMACION - CO-P227-2026-SEM04-CUS`
+- **MOD:** `pdfGenerator.ts` - Actualizado titulo en las 4 funciones de generacion PDF
+- **MOD:** `ReportesPage.tsx` - Actualizado titulo en vista previa de la tabla
+
 ### v1.6.0 (02/02/2026) - Rastreo GPS por Fotos (ODT)
 
 Sistema de rastreo de tecnicos basado en ubicacion de ultima foto sincronizada.
