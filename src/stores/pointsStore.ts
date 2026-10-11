@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import type {
   GpsPoint,
   GpsPointExtended,
@@ -21,6 +22,11 @@ import {
   searchBySuministro
 } from '../services/pointsService';
 import { useAuthStore } from './authStore';
+import { filterJornadaSheets, isJornadaSheet, pickDefaultJornada } from '../utils/sheets';
+
+// Identificador de la ultima solicitud de carga, para descartar respuestas viejas
+// cuando el usuario cambia de jornada rapidamente.
+let loadRequestId = 0;
 
 interface Filters {
   tecnico: string;
@@ -82,7 +88,9 @@ const defaultFilters: Filters = {
   search: '',
 };
 
-export const usePointsStore = create<PointsState>((set, get) => ({
+export const usePointsStore = create<PointsState>()(
+  persist(
+  (set, get) => ({
   // Estado inicial
   points: [],
   sheets: [],
@@ -103,20 +111,26 @@ export const usePointsStore = create<PointsState>((set, get) => ({
   error: null,
   lastUpdated: null,
 
-  // Cargar hojas disponibles
+  // Cargar hojas disponibles (solo jornadas reales, sin hojas de sistema)
   loadSheets: async () => {
     set({ isLoading: true, error: null });
     try {
-      const sheets = await getSheets();
+      const allSheets = await getSheets();
+      const sheets = filterJornadaSheets(Array.isArray(allSheets) ? allSheets : []);
       set({ sheets, isLoading: false });
 
-      // Auto-seleccionar primera hoja si no hay seleccionada
-      if (sheets.length > 0 && !get().selectedSheet) {
-        const firstSheet = sheets[0].name;
-        set({ selectedSheet: firstSheet });
-        await get().loadPointsExtended(firstSheet);
+      // Mantener la jornada persistida si sigue existiendo; si no, la mas reciente
+      const current = get().selectedSheet;
+      const currentIsValid = !!current && isJornadaSheet(current) && sheets.some(s => s.name === current);
+      const target = currentIsValid ? current : pickDefaultJornada(sheets);
+
+      if (target) {
+        set({ selectedSheet: target });
+        await get().loadPointsExtended(target);
+      } else {
+        set({ selectedSheet: null });
       }
-    } catch (error) {
+    } catch {
       set({
         error: 'Error cargando hojas',
         isLoading: false
@@ -126,19 +140,36 @@ export const usePointsStore = create<PointsState>((set, get) => ({
 
   // Cargar puntos legacy (compatibilidad)
   loadPoints: async (sheetName: string) => {
+    const requestId = ++loadRequestId;
     set({ isLoading: true, error: null });
     try {
       const points = await getAllPoints(sheetName);
+      if (requestId !== loadRequestId) return; // respuesta obsoleta
       const stats = calculateStats(points);
+      // Los datos legacy no tienen estructura extendida: limpiar datos de la hoja anterior
       set({
         points,
         stats,
+        pointsExtended: [],
+        filteredPoints: [],
+        extendedStats: null,
+        sheetStructure: 'legacy',
+        tecnicos: [],
+        distritos: [],
         selectedSheet: sheetName,
         isLoading: false,
         lastUpdated: new Date().toISOString()
       });
-    } catch (error) {
+    } catch {
+      if (requestId !== loadRequestId) return;
       set({
+        points: [],
+        pointsExtended: [],
+        filteredPoints: [],
+        extendedStats: null,
+        tecnicos: [],
+        distritos: [],
+        stats: emptyStats,
         error: 'Error cargando puntos',
         isLoading: false
       });
@@ -147,6 +178,7 @@ export const usePointsStore = create<PointsState>((set, get) => ({
 
   // Cargar puntos extendidos (v2.0)
   loadPointsExtended: async (sheetName: string) => {
+    const requestId = ++loadRequestId;
     set({ isLoading: true, error: null });
     try {
       // Cargar puntos extendidos y estadísticas en paralelo
@@ -155,7 +187,10 @@ export const usePointsStore = create<PointsState>((set, get) => ({
         getStats(sheetName)
       ]);
 
-      if (pointsResponse.success) {
+      // Si el usuario ya cambio de jornada, descartar esta respuesta
+      if (requestId !== loadRequestId) return;
+
+      if (pointsResponse && pointsResponse.success && Array.isArray(pointsResponse.points)) {
         const pointsExtended = pointsResponse.points;
         const stats = calculateStatsFromExtended(pointsExtended);
         const tecnicos = getUniqueTecnicos(pointsExtended);
@@ -194,6 +229,7 @@ export const usePointsStore = create<PointsState>((set, get) => ({
         await get().loadPoints(sheetName);
       }
     } catch (error) {
+      if (requestId !== loadRequestId) return;
       console.error('Error cargando puntos extendidos:', error);
       // Fallback a legacy
       await get().loadPoints(sheetName);
@@ -277,7 +313,14 @@ export const usePointsStore = create<PointsState>((set, get) => ({
 
     set({ filteredPoints: filtered, stats });
   },
-}));
+  }),
+  {
+    name: 'telcom-points-storage',
+    // Solo se persiste la jornada seleccionada (los datos se recargan del API)
+    partialize: (state) => ({ selectedSheet: state.selectedSheet }),
+  }
+  )
+);
 
 // Selectores para componentes
 export const useFilteredPoints = () => usePointsStore((state) => state.filteredPoints);

@@ -179,11 +179,27 @@ export function groupByDistrito(points: GpsPointExtended[]): Record<string, GpsP
 }
 
 // Filtrar puntos por técnico
+/**
+ * Personas que trabajaron un punto: el técnico asignado (columna B) y quienes
+ * tomaron fotos con su dispositivo (perfil ODT de la app: Waldir, Jael, …).
+ */
+export function workersOf(p: GpsPointExtended): string[] {
+  const names = new Set<string>();
+  const add = (n?: string | null) => {
+    const t = (n || '').trim();
+    if (t) names.add(t);
+  };
+  add(p.tecnico);
+  add(p.odtNombre);
+  (p.photoLinks || []).forEach((l) => add(l.odtNombre));
+  return [...names];
+}
+
 export function filterByTecnico(points: GpsPointExtended[], tecnico: string): GpsPointExtended[] {
   if (!tecnico || tecnico === 'Todos') {
     return points;
   }
-  return points.filter(p => p.tecnico === tecnico);
+  return points.filter(p => workersOf(p).includes(tecnico));
 }
 
 // Filtrar puntos por distrito
@@ -204,13 +220,10 @@ export function filterByStatus(points: GpsPointExtended[], status: string): GpsP
 
 // Obtener lista única de técnicos
 export function getUniqueTecnicos(points: GpsPointExtended[]): string[] {
+  // Incluye asignados (columna B) y quienes trabajaron desde su dispositivo
   const tecnicos = new Set<string>();
-  points.forEach(p => {
-    if (p.tecnico) {
-      tecnicos.add(p.tecnico);
-    }
-  });
-  return Array.from(tecnicos).sort();
+  points.forEach(p => workersOf(p).forEach(n => tecnicos.add(n)));
+  return Array.from(tecnicos).sort((a, b) => a.localeCompare(b, 'es'));
 }
 
 // Obtener lista única de distritos

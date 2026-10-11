@@ -21,11 +21,11 @@ Google Spreadsheet ID: `1D37cWMwyeTn5jcjNRHB893SoyXFte-A5Rswr3nCsHTI`
 ```
 id                                    | email              | password                                                          | nombre              | rol        | activo | createdAt  | lastLogin
 --------------------------------------+--------------------+-------------------------------------------------------------------+---------------------+------------+--------+------------+-----------
-550e8400-e29b-41d4-a716-446655440000 | admin@telcom.com   | 8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918 | Administrador       | admin      | TRUE   | 2025-01-01 | 2025-12-22
+550e8400-e29b-41d4-a716-446655440000 | admin@ejemplo.com  | (hash SHA-256 de la contraseña)                                   | Administrador       | admin      | TRUE   | 2025-01-01 | 2025-12-22
 550e8400-e29b-41d4-a716-446655440001 | supervisor@telcom.com | (hash)                                                         | Juan Pérez          | supervisor | TRUE   | 2025-03-15 | 2025-12-21
 ```
 
-**Nota:** La contraseña por defecto "admin" tiene hash: `8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918`
+**Nota:** No usar contraseñas por defecto ni documentarlas aquí. La contraseña del administrador se define de forma privada y se guarda solo como hash.
 
 ---
 
@@ -98,8 +98,8 @@ APP_NAME                 | TELCOM Dashboard                               | Nomb
 2. Crea las hojas: `Usuarios`, `Sesiones`, `Reportes`, `Configuracion`
 3. Agrega los encabezados en la fila 1 de cada hoja
 4. En `Usuarios`, agrega al menos un usuario admin con:
-   - email: `admin@telcom.com`
-   - password: `8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918` (es "admin")
+   - email: (definir de forma privada)
+   - password: hash SHA-256 de una contraseña fuerte definida de forma privada (no documentarla)
    - nombre: `Administrador`
    - rol: `admin`
    - activo: `TRUE`

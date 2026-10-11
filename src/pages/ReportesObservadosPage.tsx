@@ -21,10 +21,21 @@ import {
   generateObservadoPDFSimpleBlob,
   type ObservadoPDFData
 } from '../utils/pdfObservados';
+import { supervisionObservadosTitle } from '../config/report';
+import { downloadCsv } from '../utils/csv';
+import { PageHeader, StatCard, SectionCard, EmptyState, Badge, ui } from '../components/ui';
+
+// Formato de miles es-PE (solo visual)
+const fmt = (n: number) => n.toLocaleString('es-PE');
 
 // Configuración de paginación
 const PAGE_SIZES = [25, 50, 100, 200];
 const DEFAULT_PAGE_SIZE = 50;
+
+// Limites del polling de estado del mapeo de fotos
+const MAPEO_MAX_POLL_MS = 10 * 60 * 1000; // 10 minutos
+const MAPEO_MAX_FAILURES = 3;
+const MAPEO_IDLE_GRACE_MS = 15 * 1000;
 
 type SortField = 'numero' | 'serie' | 'suministro' | 'tecnico' | 'fechaContraste';
 type SortDirection = 'asc' | 'desc';
@@ -138,25 +149,61 @@ export default function ReportesObservadosPage() {
     }
   }
 
-  // Verificar estado del mapeo periódicamente
+  // Verificar estado del mapeo periódicamente.
+  // Se detiene si: termina, el servidor responde idle/null/error, o se supera el tiempo maximo.
   useEffect(() => {
-    let interval: NodeJS.Timeout | null = null;
+    if (!isMapping) return;
 
-    if (isMapping) {
-      interval = setInterval(async () => {
-        const status = await getMapeoStatus();
-        setMapeoStatus(status);
+    const startedAt = Date.now();
+    let consecutiveFailures = 0;
+    let stopped = false;
 
-        if (status && status.status === 'completed') {
-          setIsMapping(false);
-          // Recargar datos
-          loadData();
+    const stop = (message?: string) => {
+      if (stopped) return;
+      stopped = true;
+      clearInterval(interval);
+      setIsMapping(false);
+      if (message) alert(message);
+    };
+
+    const interval = setInterval(async () => {
+      if (Date.now() - startedAt > MAPEO_MAX_POLL_MS) {
+        stop('El mapeo de fotos tardó demasiado. Revisa el estado más tarde con "Actualizar".');
+        return;
+      }
+
+      let status: MapeoStatusResponse | null = null;
+      try {
+        status = await getMapeoStatus();
+      } catch {
+        status = null;
+      }
+      if (stopped) return;
+
+      if (!status || status.success === false) {
+        consecutiveFailures++;
+        if (consecutiveFailures >= MAPEO_MAX_FAILURES) {
+          stop('No se pudo consultar el estado del mapeo de fotos.');
         }
-      }, 3000);
-    }
+        return;
+      }
+      consecutiveFailures = 0;
+      setMapeoStatus(status);
+
+      if (status.status === 'completed') {
+        stop();
+        loadData();
+      } else if (status.status === 'idle' && Date.now() - startedAt > MAPEO_IDLE_GRACE_MS) {
+        // El servidor ya no tiene un mapeo en curso: dejar de consultar y recargar
+        // (se da un margen inicial porque el servidor puede tardar en marcar "in_progress")
+        stop();
+        loadData();
+      }
+    }, 3000);
 
     return () => {
-      if (interval) clearInterval(interval);
+      stopped = true;
+      clearInterval(interval);
     };
   }, [isMapping, selectedSheet]);
 
@@ -170,22 +217,31 @@ export default function ReportesObservadosPage() {
     try {
       const result = await mapearFotosObservados(selectedSheet);
 
-      if (result) {
-        if (result.status === 'completed') {
-          setIsMapping(false);
-          alert(`Mapeo completado!\n\nSuministros procesados: ${result.processed}\nFotos encontradas: ${result.fotosEncontradas}`);
-          loadData();
-        } else if (result.status === 'in_progress') {
-          // El mapeo continúa en segundo plano
-          setMapeoStatus({
-            success: true,
-            message: result.message,
-            status: 'in_progress',
-            processed: result.processed,
-            total: result.total,
-            fotosEncontradas: result.fotosEncontradas
-          });
-        }
+      if (!result) {
+        // Error de red o respuesta invalida: no quedar consultando indefinidamente
+        setIsMapping(false);
+        alert('Error al iniciar el mapeo de fotos');
+        return;
+      }
+
+      if (result.status === 'completed') {
+        setIsMapping(false);
+        alert(`¡Mapeo completado!\n\nSuministros procesados: ${result.processed}\nFotos encontradas: ${result.fotosEncontradas}`);
+        loadData();
+      } else if (result.status === 'in_progress') {
+        // El mapeo continúa en segundo plano: (re)activar el polling
+        setIsMapping(true);
+        setMapeoStatus({
+          success: true,
+          message: result.message,
+          status: 'in_progress',
+          processed: result.processed,
+          total: result.total,
+          fotosEncontradas: result.fotosEncontradas
+        });
+      } else {
+        setIsMapping(false);
+        alert(result.message || 'El mapeo de fotos no se pudo completar');
       }
     } catch (error) {
       console.error('Error en mapeo:', error);
@@ -408,7 +464,7 @@ export default function ReportesObservadosPage() {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      alert(`ZIP generado exitosamente!\n\nPDFs creados: ${successCount}\nErrores: ${errorCount}`);
+      alert(`¡ZIP generado correctamente!\n\nPDFs creados: ${successCount}\nErrores: ${errorCount}`);
     } catch (error) {
       console.error('Error generando ZIP:', error);
       alert('Error al generar el archivo ZIP');
@@ -435,20 +491,7 @@ export default function ReportesObservadosPage() {
       point.photoLinks?.length || 0
     ]);
 
-    const csvContent = [
-      headers.join(','),
-      ...rows.map((row) =>
-        row.map((cell) => `"${String(cell || '').replace(/"/g, '""')}"`).join(',')
-      ),
-    ].join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `observados_semana_${semana}_${new Date().toISOString().split('T')[0]}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+    downloadCsv(`observados_semana_${semana}_${new Date().toISOString().split('T')[0]}.csv`, headers, rows);
   };
 
   // Renderizar icono de ordenamiento
@@ -457,97 +500,107 @@ export default function ReportesObservadosPage() {
       return <ArrowUpDown size={14} className="text-gray-400" />;
     }
     return sortDirection === 'asc'
-      ? <ArrowUp size={14} className="text-orange-600" />
-      : <ArrowDown size={14} className="text-orange-600" />;
+      ? <ArrowUp size={14} className="text-electric" />
+      : <ArrowDown size={14} className="text-electric" />;
   };
+
+  // Derivados solo para mostrar
+  const totalFotos = points.reduce((acc, p) => acc + (p.photoLinks?.length || 0), 0);
+  const sinFotos = points.filter(p => !p.photoLinks || p.photoLinks.length === 0).length;
+  const sortTh = `${ui.th} cursor-pointer select-none whitespace-nowrap hover:text-electric`;
+  const pagerBtn = 'rounded-lg border border-gray-300 px-2.5 py-1 text-sm text-gray-700 transition hover:border-electric hover:text-electric disabled:cursor-not-allowed disabled:opacity-40';
 
   if (loadingSheets) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600"></div>
+      <div className="flex h-64 flex-col items-center justify-center gap-3">
+        <div className="h-12 w-12 animate-spin rounded-full border-2 border-gray-200 border-t-electric"></div>
+        <p className="text-sm text-gray-500">Cargando hojas de observados…</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <FileText className="text-orange-600" />
-            Reportes OBSERVADOS
-          </h1>
-          <p className="text-gray-500">
-            {selectedSheet
-              ? `SUPERVISION DE SUMINISTROS OBSERVADOS - P227 - SEMANA ${semana || '?'}`
-              : 'Selecciona una hoja de observados'}
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          {/* Selector de hoja */}
-          <select
-            value={selectedSheet}
-            onChange={(e) => {
-              setSelectedSheet(e.target.value);
-              setCurrentPage(1);
-            }}
-            className="border border-gray-300 rounded-lg px-3 py-2"
-            disabled={sheets.length === 0}
-          >
-            {sheets.length === 0 ? (
-              <option value="">No hay hojas OBSERVADOS</option>
-            ) : (
-              sheets.map((s) => (
-                <option key={s.id} value={s.name}>{s.name}</option>
-              ))
-            )}
-          </select>
+      <PageHeader
+        kicker="Supervisión · Observados"
+        title="Reportes de observados"
+        icon={<FileText size={22} />}
+        subtitle={
+          selectedSheet
+            ? supervisionObservadosTitle(semana)
+            : 'Selecciona una hoja de observados'
+        }
+        actions={
+          <>
+            {/* Selector de hoja */}
+            <select
+              value={selectedSheet}
+              onChange={(e) => {
+                setSelectedSheet(e.target.value);
+                setCurrentPage(1);
+              }}
+              className={`${ui.input} w-auto min-w-[200px]`}
+              disabled={sheets.length === 0}
+              aria-label="Hoja de observados"
+            >
+              {sheets.length === 0 ? (
+                <option value="">No hay hojas de observados</option>
+              ) : (
+                sheets.map((s) => (
+                  <option key={s.id} value={s.name}>{s.name}</option>
+                ))
+              )}
+            </select>
 
-          {/* Botón mapear fotos */}
-          <button
-            onClick={handleMapearFotos}
-            disabled={!selectedSheet || isMapping}
-            className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isMapping ? (
-              <Loader2 size={18} className="animate-spin" />
-            ) : (
-              <FolderSync size={18} />
-            )}
-            {isMapping ? 'Mapeando...' : 'Mapear Fotos'}
-          </button>
+            {/* Botón mapear fotos */}
+            <button
+              onClick={handleMapearFotos}
+              disabled={!selectedSheet || isMapping}
+              className={ui.btnPrimary}
+              title="Vincula las fotos de Google Drive con cada suministro observado"
+            >
+              {isMapping ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                <FolderSync size={16} />
+              )}
+              {isMapping ? 'Vinculando fotos…' : 'Mapear fotos'}
+            </button>
 
-          {/* Botón recargar */}
-          <button
-            onClick={loadData}
-            disabled={!selectedSheet || isLoading}
-            className="flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
-          >
-            <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
-          </button>
-        </div>
-      </div>
+            {/* Botón recargar */}
+            <button
+              onClick={loadData}
+              disabled={!selectedSheet || isLoading}
+              className={ui.btnSecondary}
+              title="Recargar datos de la hoja"
+            >
+              <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} />
+              Actualizar
+            </button>
+          </>
+        }
+      />
 
       {/* Estado del mapeo */}
       {isMapping && mapeoStatus && mapeoStatus.status === 'in_progress' && (
-        <div className="bg-orange-50 border border-orange-200 rounded-xl p-4">
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
           <div className="flex items-center gap-3">
-            <Loader2 size={24} className="animate-spin text-orange-600" />
+            <Loader2 size={22} className="animate-spin text-energy" />
             <div className="flex-1">
-              <p className="font-medium text-orange-800">Mapeando fotos desde Google Drive...</p>
-              <p className="text-sm text-orange-600">
-                Procesados: {mapeoStatus.processed || 0} / {mapeoStatus.total || '?'} |
-                Fotos encontradas: {mapeoStatus.fotosEncontradas || 0}
+              <p className="font-medium text-amber-800">Vinculando fotos desde Google Drive…</p>
+              <p className="mt-0.5 text-sm text-gray-600">
+                Procesados: <span className="font-mono text-gray-800">{fmt(mapeoStatus.processed || 0)} / {mapeoStatus.total ? fmt(mapeoStatus.total) : '?'}</span>
+                <span className="mx-2 text-gray-400">·</span>
+                Fotos encontradas: <span className="font-mono text-gray-800">{fmt(mapeoStatus.fotosEncontradas || 0)}</span>
               </p>
-              <p className="text-xs text-orange-500 mt-1">
-                El proceso continúa automáticamente si excede 5 minutos
+              <p className="mt-1 text-xs text-gray-500">
+                Si supera los 5 minutos, el proceso continúa automáticamente en segundo plano.
               </p>
             </div>
           </div>
-          <div className="mt-3 w-full bg-orange-200 rounded-full h-2">
+          <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-gray-100">
             <div
-              className="bg-orange-600 h-2 rounded-full transition-all duration-300"
+              className="h-2 rounded-full bg-energy transition-all duration-300"
               style={{ width: `${mapeoStatus.total ? (mapeoStatus.processed! / mapeoStatus.total) * 100 : 0}%` }}
             />
           </div>
@@ -555,45 +608,59 @@ export default function ReportesObservadosPage() {
       )}
 
       {/* Stats */}
-      <div className="bg-gradient-to-r from-orange-50 to-amber-50 rounded-xl p-4 border border-orange-200">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm text-orange-600 font-medium">Suministros Observados</p>
-            <p className="text-3xl font-bold text-orange-900">{points.length}</p>
-          </div>
-          <div className="text-right">
-            <p className="text-sm text-gray-500">Fotos totales: {points.reduce((acc, p) => acc + (p.photoLinks?.length || 0), 0)}</p>
-            <p className="text-sm text-gray-500">Semana: {semana || '-'}</p>
-          </div>
-        </div>
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <StatCard
+          label="Suministros observados"
+          tone="amber"
+          icon={<FileText size={18} />}
+          value={fmt(points.length)}
+        />
+        <StatCard
+          label="Fotos vinculadas"
+          tone="cyan"
+          icon={<Eye size={18} />}
+          value={fmt(totalFotos)}
+          hint="Total de fotos encontradas en Drive"
+        />
+        <StatCard
+          label="Sin fotos"
+          tone={sinFotos > 0 ? 'red' : 'green'}
+          icon={<AlertCircle size={18} />}
+          value={fmt(sinFotos)}
+          hint="Suministros aún sin foto vinculada"
+        />
+        <StatCard
+          label="Semana"
+          tone="gray"
+          icon={<FileDown size={18} />}
+          value={semana || '—'}
+        />
       </div>
 
       {/* Barra de acciones */}
-      <div className="bg-white rounded-xl border border-gray-200 p-4">
-        <div className="flex flex-wrap items-center gap-4">
+      <SectionCard bodyClassName="p-4">
+        <div className="flex flex-wrap items-center gap-3">
           {/* Búsqueda */}
-          <div className="flex-1 min-w-[200px]">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
-                  setCurrentPage(1);
-                }}
-                placeholder="Buscar suministro, serie, técnico..."
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-              />
-            </div>
+          <div className="relative min-w-[220px] flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1);
+              }}
+              placeholder="Buscar suministro, serie, técnico u observación…"
+              className={`${ui.input} pl-9`}
+            />
           </div>
 
           {/* Reset */}
           <button
             onClick={handleReset}
-            className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg"
+            className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm text-gray-600 transition hover:bg-gray-100 hover:text-electric"
           >
-            <RotateCcw size={18} />
+            <RotateCcw size={16} />
             Limpiar
           </button>
 
@@ -601,110 +668,96 @@ export default function ReportesObservadosPage() {
           <button
             onClick={() => setShowBatchModal(true)}
             disabled={sortedPoints.length === 0 || isBatchExporting}
-            className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className={ui.btnPrimary}
+            title="Genera un PDF por suministro y los descarga en un ZIP"
           >
-            <Package size={18} />
-            Exportar {sortedPoints.length} PDFs
+            <Package size={16} />
+            Exportar {fmt(sortedPoints.length)} PDF (ZIP)
           </button>
 
           {/* CSV */}
           <button
             onClick={exportToCSV}
             disabled={sortedPoints.length === 0}
-            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className={ui.btnSuccess}
           >
-            <Download size={18} />
-            CSV
+            <Download size={16} />
+            Exportar CSV
           </button>
         </div>
 
-        <div className="mt-3 text-sm text-gray-500">
-          Mostrando {sortedPoints.length} suministros
-          {searchQuery && ` (filtrados de ${points.length})`}
-        </div>
-      </div>
+        <p className="mt-3 text-xs text-gray-500">
+          Mostrando <span className="font-mono text-gray-700">{fmt(sortedPoints.length)}</span> suministros
+          {searchQuery && <> (filtrados de <span className="font-mono text-gray-700">{fmt(points.length)}</span>)</>}
+        </p>
+      </SectionCard>
 
       {/* Mensaje si no hay hojas */}
       {sheets.length === 0 && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-6 text-center">
-          <AlertCircle size={48} className="mx-auto text-yellow-500 mb-4" />
-          <h3 className="text-lg font-medium text-yellow-800">No hay hojas OBSERVADOS</h3>
-          <p className="text-yellow-600 mt-2">
-            Crea una hoja cuyo nombre empiece con "Observados" (ej: "Observados Semana 45")
-          </p>
-        </div>
+        <SectionCard>
+          <EmptyState
+            icon="reporte"
+            title="No hay hojas de observados"
+            description={<>Crea una hoja cuyo nombre empiece con «Observados» (por ejemplo, «Observados Semana 45»).</>}
+          />
+        </SectionCard>
       )}
 
       {/* Tabla */}
       {selectedSheet && (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className={ui.tableWrap}>
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th
-                    className="text-left py-3 px-3 text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none whitespace-nowrap"
-                    onClick={() => handleSort('numero')}
-                  >
+              <thead>
+                <tr className={ui.theadRow}>
+                  <th className={sortTh} onClick={() => handleSort('numero')}>
                     <span className="flex items-center gap-1">
-                      N
+                      N.º
                       <SortIcon field="numero" />
                     </span>
                   </th>
-                  <th
-                    className="text-left py-3 px-3 text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none whitespace-nowrap"
-                    onClick={() => handleSort('serie')}
-                  >
+                  <th className={sortTh} onClick={() => handleSort('serie')}>
                     <span className="flex items-center gap-1">
                       Serie
                       <SortIcon field="serie" />
                     </span>
                   </th>
-                  <th
-                    className="text-left py-3 px-3 text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none whitespace-nowrap"
-                    onClick={() => handleSort('suministro')}
-                  >
+                  <th className={sortTh} onClick={() => handleSort('suministro')}>
                     <span className="flex items-center gap-1">
                       Suministro
                       <SortIcon field="suministro" />
                     </span>
                   </th>
-                  <th className="text-left py-3 px-3 text-sm font-medium text-gray-500 whitespace-nowrap">
+                  <th className={`${ui.th} whitespace-nowrap`}>
                     Ruta
                   </th>
-                  <th
-                    className="text-left py-3 px-3 text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none whitespace-nowrap"
-                    onClick={() => handleSort('tecnico')}
-                  >
+                  <th className={sortTh} onClick={() => handleSort('tecnico')}>
                     <span className="flex items-center gap-1">
-                      Tecnico
+                      Técnico
                       <SortIcon field="tecnico" />
                     </span>
                   </th>
-                  <th
-                    className="text-left py-3 px-3 text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none whitespace-nowrap"
-                    onClick={() => handleSort('fechaContraste')}
-                  >
+                  <th className={sortTh} onClick={() => handleSort('fechaContraste')} title="Fecha de contraste">
                     <span className="flex items-center gap-1">
-                      F.Cont.
+                      F. contraste
                       <SortIcon field="fechaContraste" />
                     </span>
                   </th>
-                  <th className="text-left py-3 px-3 text-sm font-medium text-gray-500 whitespace-nowrap min-w-[200px]">
-                    Observacion
+                  <th className={`${ui.th} min-w-[200px] whitespace-nowrap`}>
+                    Observación
                   </th>
                   {/* Columnas de fotos */}
                   {Array.from({ length: Math.min(maxPhotos, 4) }, (_, i) => (
-                    <th key={i} className="text-center py-3 px-2 text-sm font-medium text-gray-500 whitespace-nowrap">
-                      F{i + 1}
+                    <th key={i} className={`${ui.th} whitespace-nowrap px-2 text-center`} title={`Foto ${i + 1}`}>
+                      Foto {i + 1}
                     </th>
                   ))}
                   {maxPhotos > 4 && (
-                    <th className="text-center py-3 px-2 text-sm font-medium text-gray-500 whitespace-nowrap">
-                      +
+                    <th className={`${ui.th} whitespace-nowrap px-2 text-center`} title="Fotos adicionales">
+                      Más
                     </th>
                   )}
-                  <th className="text-center py-3 px-3 text-sm font-medium text-gray-500 whitespace-nowrap">
+                  <th className={`${ui.th} whitespace-nowrap text-center`}>
                     PDF
                   </th>
                 </tr>
@@ -712,65 +765,67 @@ export default function ReportesObservadosPage() {
               <tbody>
                 {isLoading ? (
                   <tr>
-                    <td colSpan={10 + Math.min(maxPhotos, 4)} className="text-center py-12">
-                      <Loader2 size={32} className="animate-spin text-orange-600 mx-auto" />
-                      <p className="text-gray-500 mt-2">Cargando datos...</p>
+                    <td colSpan={10 + Math.min(maxPhotos, 4)} className="py-12 text-center">
+                      <Loader2 size={32} className="mx-auto animate-spin text-electric" />
+                      <p className="mt-2 text-sm text-gray-500">Cargando datos…</p>
                     </td>
                   </tr>
                 ) : paginatedPoints.length === 0 ? (
                   <tr>
-                    <td colSpan={10 + Math.min(maxPhotos, 4)} className="text-center py-12 text-gray-500">
-                      <FileText size={48} className="mx-auto mb-4 opacity-50" />
-                      <p>No hay datos</p>
-                      <p className="text-sm mt-1">
-                        {points.length === 0
-                          ? 'Haz clic en "Mapear Fotos" para buscar fotos en Drive'
-                          : 'No se encontraron resultados para la búsqueda'}
-                      </p>
+                    <td colSpan={10 + Math.min(maxPhotos, 4)}>
+                      <EmptyState
+                        icon="reporte"
+                        compact
+                        title="No hay datos para mostrar"
+                        description={points.length === 0
+                          ? 'Haz clic en «Mapear fotos» para vincular las fotos de Google Drive con cada suministro observado.'
+                          : 'No se encontraron resultados para la búsqueda.'}
+                      />
                     </td>
                   </tr>
                 ) : (
                   paginatedPoints.map((point, index) => (
                     <tr
                       key={`${point.suministro}-${index}`}
-                      className="border-b border-gray-100 hover:bg-gray-50"
+                      className={ui.tbodyRow}
                     >
-                      <td className="py-2 px-3 text-sm text-gray-600">{point.numero}</td>
-                      <td className="py-2 px-3 text-sm font-mono text-gray-900">{point.serie}</td>
-                      <td className="py-2 px-3 text-sm font-medium text-gray-900">{point.suministro}</td>
-                      <td className="py-2 px-3 text-sm font-mono text-gray-600">{point.codigoRuta || '-'}</td>
-                      <td className="py-2 px-3 text-sm text-gray-600">{point.tecnico || '-'}</td>
-                      <td className="py-2 px-3 text-sm text-gray-600">{formatDate(point.fechaContraste)}</td>
-                      <td className="py-2 px-3">
+                      <td className={`${ui.td} py-2 font-mono text-gray-500`}>{point.numero}</td>
+                      <td className={`${ui.td} py-2 font-mono text-gray-900`}>{point.serie}</td>
+                      <td className={`${ui.td} py-2 font-mono font-semibold text-gray-900`}>{point.suministro}</td>
+                      <td className={`${ui.td} py-2 font-mono text-gray-600`}>{point.codigoRuta || '—'}</td>
+                      <td className={`${ui.td} py-2`}>{point.tecnico || '—'}</td>
+                      <td className={`${ui.td} whitespace-nowrap py-2 font-mono`}>{formatDate(point.fechaContraste)}</td>
+                      <td className={`${ui.td} py-2`}>
                         <span
-                          className="text-sm text-gray-700 truncate block max-w-[200px]"
+                          className="block max-w-[220px] truncate text-gray-700"
                           title={point.notas}
                         >
-                          {point.notas || '-'}
+                          {point.notas || '—'}
                         </span>
                       </td>
                       {/* Botones de fotos */}
                       {Array.from({ length: Math.min(maxPhotos, 4) }, (_, i) => (
-                        <td key={i} className="py-2 px-1 text-center">
+                        <td key={i} className="px-1 py-2 text-center">
                           {point.photoLinks && point.photoLinks[i] ? (
                             <button
                               onClick={() => handleOpenPhoto(point.photoLinks, point.suministro, i)}
-                              className="p-1 text-orange-600 hover:text-orange-800 hover:bg-orange-50 rounded transition-colors"
+                              className="rounded-lg p-1.5 text-electric transition-colors hover:bg-cyan-400/10"
                               title={`Ver foto ${i + 1}`}
                             >
                               <Eye size={16} />
                             </button>
                           ) : (
-                            <span className="text-gray-300">-</span>
+                            <span className="text-gray-400">—</span>
                           )}
                         </td>
                       ))}
                       {maxPhotos > 4 && (
-                        <td className="py-2 px-1 text-center">
+                        <td className="px-1 py-2 text-center">
                           {point.photoLinks && point.photoLinks.length > 4 && (
                             <button
                               onClick={() => handleOpenPhoto(point.photoLinks, point.suministro, 4)}
-                              className="px-1.5 py-0.5 text-xs text-orange-600 hover:text-orange-800 hover:bg-orange-50 rounded transition-colors"
+                              className="rounded-md px-1.5 py-0.5 font-mono text-xs text-electric transition-colors hover:bg-cyan-400/10"
+                              title="Ver fotos adicionales"
                             >
                               +{point.photoLinks.length - 4}
                             </button>
@@ -778,11 +833,11 @@ export default function ReportesObservadosPage() {
                         </td>
                       )}
                       {/* Botón generar PDF */}
-                      <td className="py-2 px-3 text-center">
+                      <td className="px-3 py-2 text-center">
                         <button
                           onClick={() => handleGeneratePDF(point, true)}
                           disabled={generatingPDF === point.suministro}
-                          className="p-1.5 text-orange-600 hover:text-orange-800 hover:bg-orange-50 rounded transition-colors disabled:opacity-50"
+                          className="rounded-lg p-1.5 text-energy transition-colors hover:bg-amber-50 disabled:opacity-50"
                           title="Generar PDF con imágenes"
                         >
                           {generatingPDF === point.suministro ? (
@@ -801,20 +856,21 @@ export default function ReportesObservadosPage() {
 
           {/* Paginación */}
           {sortedPoints.length > 0 && (
-            <div className="px-4 py-3 border-t border-gray-200 flex flex-wrap items-center justify-between gap-4">
+            <div className="flex flex-wrap items-center justify-between gap-4 border-t border-gray-200 px-4 py-3">
               <div className="flex items-center gap-4">
-                <span className="text-sm text-gray-600">
-                  Mostrando {startIndex + 1}-{Math.min(endIndex, sortedPoints.length)} de {sortedPoints.length}
+                <span className="text-sm text-gray-500">
+                  Mostrando <span className="font-mono text-gray-700">{fmt(startIndex + 1)}–{fmt(Math.min(endIndex, sortedPoints.length))}</span> de{' '}
+                  <span className="font-mono text-gray-700">{fmt(sortedPoints.length)}</span>
                 </span>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-500">Filas:</span>
+                  <span className="text-sm text-gray-500">Filas por página:</span>
                   <select
                     value={pageSize}
                     onChange={(e) => {
                       setPageSize(Number(e.target.value));
                       setCurrentPage(1);
                     }}
-                    className="border border-gray-300 rounded px-2 py-1 text-sm"
+                    className="rounded-lg border border-gray-300 bg-navy-900 px-2 py-1 font-mono text-sm outline-none focus:border-electric"
                   >
                     {PAGE_SIZES.map((size) => (
                       <option key={size} value={size}>{size}</option>
@@ -827,31 +883,33 @@ export default function ReportesObservadosPage() {
                 <button
                   onClick={() => setCurrentPage(1)}
                   disabled={currentPage === 1}
-                  className="px-2 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className={pagerBtn}
                 >
                   Primera
                 </button>
                 <button
                   onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
                   disabled={currentPage === 1}
-                  className="p-1 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className={pagerBtn}
+                  title="Página anterior"
                 >
-                  <ChevronLeft size={18} />
+                  <ChevronLeft size={16} />
                 </button>
-                <span className="px-3 py-1 text-sm">
-                  Página {currentPage} de {totalPages || 1}
+                <span className="px-2 text-sm text-gray-500">
+                  Página <span className="font-mono text-gray-800">{currentPage}</span> de <span className="font-mono text-gray-800">{totalPages || 1}</span>
                 </span>
                 <button
                   onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
                   disabled={currentPage >= totalPages}
-                  className="p-1 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className={pagerBtn}
+                  title="Página siguiente"
                 >
-                  <ChevronRight size={18} />
+                  <ChevronRight size={16} />
                 </button>
                 <button
                   onClick={() => setCurrentPage(totalPages)}
                   disabled={currentPage >= totalPages}
-                  className="px-2 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className={pagerBtn}
                 >
                   Última
                 </button>
@@ -878,29 +936,34 @@ export default function ReportesObservadosPage() {
 
       {/* Modal de selección para batch export */}
       {showBatchModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
-            <div className="bg-orange-600 px-6 py-4 flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-white flex items-center gap-2">
-                <Package size={20} />
-                Exportar PDFs OBSERVADOS
-              </h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="mx-4 w-full max-w-md overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl shadow-black/50">
+            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+              <div>
+                <p className="brand-kicker">Exportación masiva</p>
+                <h3 className="mt-1 flex items-center gap-2 text-lg font-semibold text-gray-900">
+                  <Package size={20} className="text-electric" />
+                  Exportar PDF de observados
+                </h3>
+              </div>
               <button
                 onClick={() => setShowBatchModal(false)}
-                className="text-white/80 hover:text-white"
+                className="rounded-lg p-1.5 text-gray-500 transition hover:bg-gray-100 hover:text-gray-900"
+                title="Cerrar"
               >
                 <X size={20} />
               </button>
             </div>
             <div className="p-6">
-              <p className="text-gray-600 mb-4">
-                Se generarán {sortedPoints.length} PDFs para la Semana {semana || '?'}
+              <p className="mb-4 text-sm text-gray-600">
+                Se generarán <span className="font-mono font-semibold text-gray-900">{fmt(sortedPoints.length)}</span> PDF para la semana{' '}
+                <Badge tone="cyan">{semana || '?'}</Badge>, comprimidos en un archivo ZIP.
               </p>
 
               <div className="space-y-3">
                 <button
                   onClick={() => handleBatchExport(false)}
-                  className="w-full px-4 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 flex items-center justify-center gap-2"
+                  className={`${ui.btnPrimary} w-full py-3`}
                 >
                   <FileDown size={18} />
                   Sin imágenes (rápido)
@@ -908,7 +971,7 @@ export default function ReportesObservadosPage() {
 
                 <button
                   onClick={() => handleBatchExport(true)}
-                  className="w-full px-4 py-3 bg-orange-800 text-white rounded-lg hover:bg-orange-900 flex items-center justify-center gap-2"
+                  className={`${ui.btnSecondary} w-full py-3`}
                 >
                   <FileDown size={18} />
                   Con imágenes (lento)
@@ -917,7 +980,7 @@ export default function ReportesObservadosPage() {
 
               <button
                 onClick={() => setShowBatchModal(false)}
-                className="w-full mt-4 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                className="mt-4 w-full rounded-xl px-4 py-2 text-sm text-gray-500 transition hover:bg-gray-100 hover:text-gray-900"
               >
                 Cancelar
               </button>
@@ -928,25 +991,27 @@ export default function ReportesObservadosPage() {
 
       {/* Indicador de progreso batch export */}
       {isBatchExporting && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="mx-4 w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl shadow-black/50">
             <div className="text-center">
-              <Loader2 size={48} className="animate-spin text-orange-600 mx-auto mb-4" />
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                Generando PDFs OBSERVADOS...
+              <Loader2 size={44} className="mx-auto mb-4 animate-spin text-electric" />
+              <p className="brand-kicker">Exportación en curso</p>
+              <h3 className="mb-2 mt-1 text-lg font-semibold text-gray-900">
+                Generando PDF de observados…
               </h3>
-              <p className="text-gray-600 mb-4">
+              <p className="mb-4 truncate font-mono text-sm text-gray-600">
                 {batchProgress.currentFile}
               </p>
 
-              <div className="w-full bg-gray-200 rounded-full h-3 mb-2">
+              <div className="mb-2 h-2.5 w-full overflow-hidden rounded-full bg-gray-100">
                 <div
-                  className="bg-orange-600 h-3 rounded-full transition-all duration-300"
+                  className="h-2.5 rounded-full bg-electric transition-all duration-300"
                   style={{ width: `${(batchProgress.current / batchProgress.total) * 100}%` }}
                 />
               </div>
               <p className="text-sm text-gray-500">
-                {batchProgress.current} de {batchProgress.total} ({Math.round((batchProgress.current / batchProgress.total) * 100)}%)
+                <span className="font-mono text-gray-800">{fmt(batchProgress.current)}</span> de{' '}
+                <span className="font-mono text-gray-800">{fmt(batchProgress.total)}</span> ({Math.round((batchProgress.current / batchProgress.total) * 100)} %)
               </p>
             </div>
           </div>

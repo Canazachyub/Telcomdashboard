@@ -1,42 +1,18 @@
+import { parseFecha } from './map/dailyProgress';
+import { safeHexColor } from '../utils/html';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   X, ChevronLeft, ChevronRight, ExternalLink, Camera,
   Maximize2, Grid, Image as ImageIcon
 } from 'lucide-react';
 import type { PhotoLink } from '../types/point';
-import { getImageBase64 } from '../services/observadosService';
+import { loadImageWithCache, imageCache } from '../utils/imageCache';
 
 interface PhotoGalleryModalProps {
   photos: PhotoLink[];
   suministro: string;
   initialIndex?: number;
   onClose: () => void;
-}
-
-// Cache global de imágenes para evitar recargas
-const imageCache = new Map<string, string>();
-
-// Función para cargar imagen con cache
-async function loadImageWithCache(url: string): Promise<string | null> {
-  if (!url) return null;
-
-  // Verificar cache primero
-  if (imageCache.has(url)) {
-    return imageCache.get(url)!;
-  }
-
-  try {
-    const response = await getImageBase64(url);
-    if (response?.success && response.base64) {
-      const mimeType = response.mimeType || 'image/jpeg';
-      const dataUrl = `data:${mimeType};base64,${response.base64}`;
-      imageCache.set(url, dataUrl);
-      return dataUrl;
-    }
-    return null;
-  } catch {
-    return null;
-  }
 }
 
 // Componente de miniatura con lazy loading y cache
@@ -106,15 +82,15 @@ function PhotoThumbnail({
     <div
       ref={containerRef}
       onClick={onClick}
-      className={`relative aspect-square rounded-lg overflow-hidden cursor-pointer transition-all ${
+      className={`relative aspect-square cursor-pointer overflow-hidden rounded-xl border bg-navy-950 transition-all ${
         isSelected
-          ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-gray-900'
-          : 'hover:ring-2 hover:ring-white/50'
+          ? 'border-electric shadow-[0_0_0_2px_rgb(0_212_255/0.45)]'
+          : 'border-line hover:border-line-strong'
       }`}
     >
       {loading && (
-        <div className="absolute inset-0 bg-gray-700 flex items-center justify-center">
-          <div className="animate-spin rounded-full h-6 w-6 border-2 border-white/30 border-t-white"></div>
+        <div className="absolute inset-0 flex items-center justify-center bg-navy-800">
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-line-strong border-t-electric"></div>
         </div>
       )}
       {!error && imageData ? (
@@ -124,15 +100,18 @@ function PhotoThumbnail({
           className={`w-full h-full object-cover transition-opacity ${loading ? 'opacity-0' : 'opacity-100'}`}
         />
       ) : !loading ? (
-        <div className="absolute inset-0 bg-gray-700 flex flex-col items-center justify-center text-gray-400">
-          <Camera size={24} />
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-navy-800 text-gray-400" title="No se pudo cargar la miniatura">
+          <Camera size={22} />
         </div>
       ) : null}
-      <div className="absolute bottom-1 left-1 bg-black/70 text-white text-xs px-1.5 py-0.5 rounded">
+      <div className="absolute bottom-1 left-1 rounded-md bg-black/70 px-1.5 py-0.5 font-mono text-[11px] text-white">
         #{photo.numero}
       </div>
       {photo.lectura && (
-        <div className="absolute top-1 right-1 bg-green-600/90 text-white text-xs px-1.5 py-0.5 rounded">
+        <div
+          className="absolute right-1 top-1 max-w-[85%] truncate rounded-md bg-green-600/90 px-1.5 py-0.5 font-mono text-[11px] text-white"
+          title={String(photo.lectura)}
+        >
           {photo.lectura}
         </div>
       )}
@@ -156,14 +135,14 @@ export default function PhotoGalleryModal({
   // Si no hay fotos, mostrar mensaje y cerrar
   if (!photos || photos.length === 0) {
     return (
-      <div className="fixed inset-0 z-[1000] bg-black/95 flex items-center justify-center">
-        <div className="bg-gray-900 rounded-xl p-8 text-center max-w-md">
-          <Camera size={64} className="mx-auto text-gray-500 mb-4" />
-          <h3 className="text-white text-xl font-semibold mb-2">Sin fotos disponibles</h3>
-          <p className="text-gray-400 mb-6">No hay fotos registradas para el suministro {suministro}</p>
+      <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+        <div className="mx-4 max-w-md rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-2xl shadow-black/50">
+          <Camera size={56} className="mx-auto mb-4 text-electric" />
+          <h3 className="mb-2 text-xl font-semibold text-gray-900">Sin fotos disponibles</h3>
+          <p className="mb-6 text-sm text-gray-500">No hay fotos registradas para {suministro}.</p>
           <button
             onClick={onClose}
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition hover:brightness-110"
           >
             Cerrar
           </button>
@@ -177,14 +156,14 @@ export default function PhotoGalleryModal({
   // Guard adicional por si currentPhoto es undefined
   if (!currentPhoto || !currentPhoto.url) {
     return (
-      <div className="fixed inset-0 z-[1000] bg-black/95 flex items-center justify-center">
-        <div className="bg-gray-900 rounded-xl p-8 text-center max-w-md">
-          <Camera size={64} className="mx-auto text-gray-500 mb-4" />
-          <h3 className="text-white text-xl font-semibold mb-2">Error al cargar foto</h3>
-          <p className="text-gray-400 mb-6">La foto seleccionada no tiene URL válida</p>
+      <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+        <div className="mx-4 max-w-md rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-2xl shadow-black/50">
+          <Camera size={56} className="mx-auto mb-4 text-electric" />
+          <h3 className="mb-2 text-xl font-semibold text-gray-900">Error al cargar foto</h3>
+          <p className="mb-6 text-sm text-gray-500">La foto seleccionada no tiene un enlace válido.</p>
           <button
             onClick={onClose}
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition hover:brightness-110"
           >
             Cerrar
           </button>
@@ -295,14 +274,17 @@ export default function PhotoGalleryModal({
   }, [currentIndex, photos]);
 
   return (
-    <div className="fixed inset-0 z-[1000] bg-black/95 flex flex-col">
+    <div className="fixed inset-0 z-[1000] flex flex-col bg-black/95">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 bg-black/50 border-b border-white/10">
-        <div className="flex items-center gap-4">
-          <h3 className="text-white font-semibold text-lg">
-            Fotos - {suministro}
-          </h3>
-          <span className="text-gray-400 text-sm">
+      <div className="flex items-center justify-between gap-4 border-b border-line bg-navy-950/90 px-4 py-3 backdrop-blur-md">
+        <div className="flex min-w-0 items-center gap-4">
+          <div className="min-w-0">
+            <p className="brand-kicker">Galería de fotos</p>
+            <h3 className="mt-0.5 truncate text-lg font-semibold text-gray-900" title={suministro}>
+              {suministro}
+            </h3>
+          </div>
+          <span className="shrink-0 rounded-md border border-line-strong bg-navy-900 px-2 py-0.5 font-mono text-sm text-gray-700">
             {currentIndex + 1} / {photos.length}
           </span>
         </div>
@@ -311,10 +293,12 @@ export default function PhotoGalleryModal({
           {/* Toggle view mode */}
           <button
             onClick={() => setViewMode(viewMode === 'single' ? 'grid' : 'single')}
-            className={`p-2 rounded-lg transition-colors ${
-              viewMode === 'grid' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white hover:bg-white/10'
+            className={`rounded-lg border p-2 transition-colors ${
+              viewMode === 'grid'
+                ? 'border-electric bg-cyan-400/10 text-electric'
+                : 'border-line-strong text-gray-500 hover:border-electric hover:text-electric'
             }`}
-            title={viewMode === 'single' ? 'Ver cuadrícula' : 'Ver individual'}
+            title={viewMode === 'single' ? 'Ver todas en cuadrícula' : 'Ver foto individual'}
           >
             {viewMode === 'single' ? <Grid size={20} /> : <ImageIcon size={20} />}
           </button>
@@ -322,18 +306,20 @@ export default function PhotoGalleryModal({
           {/* Open in Drive */}
           <button
             onClick={openInDrive}
-            className="flex items-center gap-2 px-3 py-2 text-sm text-white bg-white/10 hover:bg-white/20 rounded-lg transition-colors"
+            className="flex items-center gap-2 rounded-lg border border-line-strong px-3 py-2 text-sm text-gray-700 transition-colors hover:border-electric hover:text-electric"
+            title="Abrir la foto actual en Google Drive"
           >
             <ExternalLink size={16} />
-            Abrir en Drive
+            <span className="hidden sm:inline">Abrir en Google Drive</span>
           </button>
 
           {/* Close */}
           <button
             onClick={onClose}
-            className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+            className="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
+            title="Cerrar (Esc)"
           >
-            <X size={24} />
+            <X size={22} />
           </button>
         </div>
       </div>
@@ -348,9 +334,10 @@ export default function PhotoGalleryModal({
               {currentIndex > 0 && (
                 <button
                   onClick={handlePrev}
-                  className="absolute left-4 z-10 p-3 bg-black/50 hover:bg-black/70 rounded-full transition-colors"
+                  className="absolute left-4 z-10 rounded-full border border-line-strong bg-navy-900/80 p-3 text-gray-800 backdrop-blur transition-colors hover:border-electric hover:text-electric"
+                  title="Foto anterior (←)"
                 >
-                  <ChevronLeft size={32} className="text-white" />
+                  <ChevronLeft size={28} />
                 </button>
               )}
 
@@ -358,7 +345,7 @@ export default function PhotoGalleryModal({
               <div className="relative w-full h-full flex items-center justify-center">
                 {loading && (
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="animate-spin rounded-full h-12 w-12 border-4 border-white/30 border-t-white"></div>
+                    <div className="h-12 w-12 animate-spin rounded-full border-4 border-line-strong border-t-electric"></div>
                   </div>
                 )}
 
@@ -366,15 +353,15 @@ export default function PhotoGalleryModal({
                   <img
                     src={mainImageData}
                     alt={`Foto #${currentPhoto.numero}`}
-                    className={`max-w-full max-h-[75vh] object-contain rounded-lg bg-gray-900 transition-opacity ${loading ? 'opacity-0' : 'opacity-100'}`}
+                    className={`max-h-[75vh] max-w-full rounded-xl border border-line bg-navy-900 object-contain shadow-2xl shadow-black/60 transition-opacity ${loading ? 'opacity-0' : 'opacity-100'}`}
                   />
                 ) : !loading ? (
-                  <div className="flex flex-col items-center justify-center text-gray-400">
-                    <Camera size={64} className="mb-4" />
-                    <p className="text-lg mb-2">No se pudo cargar la imagen</p>
+                  <div className="flex flex-col items-center justify-center text-gray-500">
+                    <Camera size={56} className="mb-4 text-gray-400" />
+                    <p className="mb-2 text-lg text-gray-800">No se pudo cargar la imagen</p>
                     <button
                       onClick={openInDrive}
-                      className="text-blue-400 hover:text-blue-300 underline"
+                      className="text-sm text-electric underline-offset-4 hover:underline"
                     >
                       Abrir en Google Drive
                     </button>
@@ -385,38 +372,64 @@ export default function PhotoGalleryModal({
               {currentIndex < photos.length - 1 && (
                 <button
                   onClick={handleNext}
-                  className="absolute right-4 z-10 p-3 bg-black/50 hover:bg-black/70 rounded-full transition-colors"
+                  className="absolute right-4 z-10 rounded-full border border-line-strong bg-navy-900/80 p-3 text-gray-800 backdrop-blur transition-colors hover:border-electric hover:text-electric"
+                  title="Foto siguiente (→)"
                 >
-                  <ChevronRight size={32} className="text-white" />
+                  <ChevronRight size={28} />
                 </button>
               )}
             </div>
 
             {/* Sidebar with thumbnails and info */}
-            <div className="w-72 bg-gray-900 border-l border-white/10 flex flex-col">
+            <div className="flex w-72 flex-col border-l border-line bg-navy-900">
               {/* Photo info */}
-              <div className="p-4 border-b border-white/10">
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Foto #</span>
-                    <span className="text-white font-medium">{currentPhoto.numero}</span>
+              <div className="border-b border-line p-4">
+                <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-gray-500">Detalle de la foto</p>
+                <dl className="space-y-2 text-sm">
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-gray-500">N.º de foto</dt>
+                    <dd className="font-mono font-medium text-gray-900">{currentPhoto.numero}</dd>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Fecha</span>
-                    <span className="text-white">{currentPhoto.fecha || '-'}</span>
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-gray-500">Fecha</dt>
+                    <dd className="text-right font-mono text-gray-900" title={currentPhoto.fecha || ''}>
+                      {parseFecha(currentPhoto.fecha)?.toLocaleString('es-PE', {
+                        day: '2-digit',
+                        month: 'short',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      }) ||
+                        currentPhoto.fecha ||
+                        '—'}
+                    </dd>
                   </div>
-                  {currentPhoto.lectura && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-400">Lectura</span>
-                      <span className="text-green-400 font-medium">{currentPhoto.lectura}</span>
+                  {currentPhoto.odtNombre && (
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-gray-500">Tomada por</dt>
+                      <dd className="flex items-center gap-1.5 text-gray-900">
+                        <span
+                          className="h-2.5 w-2.5 rounded-full"
+                          style={{ backgroundColor: safeHexColor(currentPhoto.odtColor, '#2a4268') }}
+                        />
+                        {currentPhoto.odtNombre}
+                      </dd>
                     </div>
                   )}
-                </div>
+                  {currentPhoto.lectura && (
+                    <div className="flex justify-between gap-3">
+                      <dt className="shrink-0 text-gray-500">Lectura</dt>
+                      <dd className="truncate font-mono font-medium text-green-700" title={String(currentPhoto.lectura)}>{currentPhoto.lectura}</dd>
+                    </div>
+                  )}
+                </dl>
               </div>
 
               {/* Thumbnails */}
-              <div className="flex-1 p-4 overflow-y-auto">
-                <p className="text-gray-400 text-sm mb-3">Todas las fotos ({photos.length})</p>
+              <div className="flex-1 overflow-y-auto p-4">
+                <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                  Todas las fotos <span className="font-mono text-gray-700">({photos.length})</span>
+                </p>
                 <div className="grid grid-cols-2 gap-2">
                   {photos.map((photo, index) => (
                     <PhotoThumbnail
@@ -438,14 +451,14 @@ export default function PhotoGalleryModal({
                 <div
                   key={index}
                   onClick={() => handleSelectPhoto(index)}
-                  className="group relative aspect-square rounded-xl overflow-hidden cursor-pointer bg-gray-800 hover:ring-2 hover:ring-blue-500 transition-all"
+                  className="group relative aspect-square cursor-pointer overflow-hidden rounded-xl bg-navy-800 transition-all hover:shadow-[0_0_0_2px_rgb(0_212_255/0.6)]"
                 >
                   <PhotoThumbnail
                     photo={photo}
                     isSelected={false}
                     onClick={() => handleSelectPhoto(index)}
                   />
-                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover:bg-black/30">
                     <Maximize2 className="text-white opacity-0 group-hover:opacity-100 transition-opacity" size={32} />
                   </div>
                 </div>
@@ -456,10 +469,17 @@ export default function PhotoGalleryModal({
       </div>
 
       {/* Footer */}
-      <div className="px-4 py-3 bg-black/50 border-t border-white/10 flex items-center justify-center gap-4 text-gray-400 text-sm">
-        <span>Usa las flechas del teclado para navegar</span>
-        <span className="text-gray-600">|</span>
-        <span>ESC para cerrar</span>
+      <div className="flex items-center justify-center gap-4 border-t border-line bg-navy-950/90 px-4 py-2.5 text-xs text-gray-500">
+        <span className="flex items-center gap-1.5">
+          <kbd className="rounded border border-line-strong bg-navy-900 px-1.5 py-0.5 font-mono text-gray-700">←</kbd>
+          <kbd className="rounded border border-line-strong bg-navy-900 px-1.5 py-0.5 font-mono text-gray-700">→</kbd>
+          para navegar
+        </span>
+        <span className="h-3 w-px bg-gray-300" />
+        <span className="flex items-center gap-1.5">
+          <kbd className="rounded border border-line-strong bg-navy-900 px-1.5 py-0.5 font-mono text-gray-700">Esc</kbd>
+          para cerrar
+        </span>
       </div>
     </div>
   );

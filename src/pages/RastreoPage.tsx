@@ -87,14 +87,17 @@ export default function RastreoPage() {
     selectEntity(entity);
   };
 
+  const totalOnline = stats.personalOnline + stats.vehiculosOnline;
+  const totalOffline = stats.personalOffline + stats.vehiculosOffline;
+
   return (
-    <div className="flex h-screen bg-gray-100">
+    <div className="flex h-[calc(100vh-112px)] min-h-[520px] overflow-hidden rounded-2xl border border-gray-200 bg-navy-950">
       {/* Mapa */}
-      <div className="flex-1 relative">
+      <div className="relative min-w-0 flex-1">
         <MapContainer
           center={MAP_CONFIG.defaultCenter}
           zoom={MAP_CONFIG.defaultZoom}
-          className="w-full h-full"
+          className="h-full w-full"
           zoomControl={true}
         >
           <TileLayer
@@ -116,29 +119,30 @@ export default function RastreoPage() {
           ))}
         </MapContainer>
 
-        {/* Badge de estado */}
-        <div className="absolute top-4 left-4 z-[1000] bg-white rounded-lg shadow-lg px-4 py-2">
+        {/* Badge de estado (a la derecha del control de zoom) */}
+        <div className="absolute left-16 top-4 z-[1000] rounded-xl border border-line-strong bg-navy-900/85 px-4 py-2 shadow-lg shadow-black/40 backdrop-blur-md">
           <div className="flex items-center gap-4 text-sm">
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-green-500"></span>
+            <div className="flex items-center gap-2" title="Con foto sincronizada en las últimas 2 h">
+              <span className="h-2.5 w-2.5 rounded-full bg-green-500 shadow-[0_0_8px_rgb(34_197_94/0.8)]"></span>
               <span className="text-gray-700">
-                {stats.personalOnline + stats.vehiculosOnline} Online
+                <span className="font-mono font-semibold text-gray-900">{totalOnline.toLocaleString('es-PE')}</span> activos
               </span>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-red-500"></span>
+            <span className="h-4 w-px bg-gray-300" />
+            <div className="flex items-center gap-2" title="Sin fotos sincronizadas en las últimas 2 h">
+              <span className="h-2.5 w-2.5 rounded-full bg-gray-400"></span>
               <span className="text-gray-700">
-                {stats.personalOffline + stats.vehiculosOffline} Offline
+                <span className="font-mono font-semibold text-gray-900">{totalOffline.toLocaleString('es-PE')}</span> inactivos
               </span>
             </div>
           </div>
         </div>
 
-        {/* Indicador de carga */}
+        {/* Indicador de carga (esquina superior derecha del mapa, junto al panel) */}
         {isLoading && (
-          <div className="absolute top-4 right-96 z-[1000] bg-blue-600 text-white rounded-lg shadow-lg px-4 py-2 flex items-center gap-2">
-            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-            <span className="text-sm">Actualizando...</span>
+          <div className="absolute right-4 top-4 z-[1000] flex items-center gap-2 rounded-xl border border-cyan-400/40 bg-navy-900/85 px-4 py-2 text-electric shadow-lg shadow-black/40 backdrop-blur-md">
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-electric border-t-transparent"></div>
+            <span className="text-sm">Actualizando…</span>
           </div>
         )}
       </div>

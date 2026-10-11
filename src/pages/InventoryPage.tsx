@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, type ReactNode } from 'react';
 import { useInventoryStore } from '../stores/inventoryStore';
 import { exportInventoryToCSV } from '../services/inventoryService';
 import type { InventoryTipo, InventoryRecord } from '../types/inventory';
@@ -7,8 +7,12 @@ import {
   Search, Filter, Download, Package, RefreshCw, ChevronDown,
   ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown,
   RotateCcw, FileSpreadsheet, Image, ExternalLink,
-  PackagePlus, PackageMinus, RotateCcw as ReturnIcon
+  PackagePlus, PackageMinus, RotateCcw as ReturnIcon, Scale
 } from 'lucide-react';
+import { PageHeader, StatCard, SectionCard, EmptyState, Badge, ui, type Tone } from '../components/ui';
+
+// Formato de miles es-PE (solo visual)
+const fmt = (n: number) => n.toLocaleString('es-PE');
 
 // Configuracion de paginacion
 const PAGE_SIZES = [25, 50, 100, 200];
@@ -19,34 +23,31 @@ type SortDirection = 'asc' | 'desc';
 
 // Badge de tipo con icono y color
 function TipoBadge({ tipo }: { tipo: InventoryTipo }) {
-  const config = {
+  const config: Record<InventoryTipo, { tone: Tone; icon: ReactNode; label: string }> = {
     INGRESO: {
-      bg: 'bg-blue-100',
-      text: 'text-blue-800',
-      icon: <PackagePlus size={14} />,
+      tone: 'blue',
+      icon: <PackagePlus size={12} />,
       label: 'Ingreso'
     },
     SALIDA: {
-      bg: 'bg-red-100',
-      text: 'text-red-800',
-      icon: <PackageMinus size={14} />,
+      tone: 'red',
+      icon: <PackageMinus size={12} />,
       label: 'Salida'
     },
     DEVOL: {
-      bg: 'bg-green-100',
-      text: 'text-green-800',
-      icon: <ReturnIcon size={14} />,
-      label: 'Devolucion'
+      tone: 'green',
+      icon: <ReturnIcon size={12} />,
+      label: 'Devolución'
     }
   };
 
-  const { bg, text, icon, label } = config[tipo] || config.INGRESO;
+  const { tone, icon, label } = config[tipo] || config.INGRESO;
 
   return (
-    <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${bg} ${text}`}>
+    <Badge tone={tone}>
       {icon}
       {label}
-    </span>
+    </Badge>
   );
 }
 
@@ -172,96 +173,106 @@ export default function InventoryPage() {
       return <ArrowUpDown size={14} className="text-gray-400" />;
     }
     return sortDirection === 'asc'
-      ? <ArrowUp size={14} className="text-blue-600" />
-      : <ArrowDown size={14} className="text-blue-600" />;
+      ? <ArrowUp size={14} className="text-electric" />
+      : <ArrowDown size={14} className="text-electric" />;
   };
 
   // Estadisticas rapidas
   const stats = useMemo(() => {
-    const ingresos = filteredRecords.filter(r => r.tipo === 'INGRESO').reduce((sum, r) => sum + r.cantidad, 0);
-    const salidas = filteredRecords.filter(r => r.tipo === 'SALIDA').reduce((sum, r) => sum + r.cantidad, 0);
-    const devoluciones = filteredRecords.filter(r => r.tipo === 'DEVOL').reduce((sum, r) => sum + r.cantidad, 0);
+    // La app envía las SALIDAS con cantidad negativa; se usan magnitudes para que
+    // el resumen sea correcto se guarden en negativo o en positivo (y aunque lleguen como texto).
+    const unidades = (r: { cantidad: unknown }) => Math.abs(Number(r.cantidad) || 0);
+    const ingresos = filteredRecords.filter(r => r.tipo === 'INGRESO').reduce((sum, r) => sum + unidades(r), 0);
+    const salidas = filteredRecords.filter(r => r.tipo === 'SALIDA').reduce((sum, r) => sum + unidades(r), 0);
+    const devoluciones = filteredRecords.filter(r => r.tipo === 'DEVOL').reduce((sum, r) => sum + unidades(r), 0);
     return { ingresos, salidas, devoluciones, balance: ingresos - salidas + devoluciones };
   }, [filteredRecords]);
 
   if (isLoading && !filteredRecords.length) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="flex h-64 flex-col items-center justify-center gap-3">
+        <div className="h-12 w-12 animate-spin rounded-full border-2 border-gray-200 border-t-electric"></div>
+        <p className="text-sm text-gray-500">Cargando inventario…</p>
       </div>
     );
   }
 
+  const sortTh = `${ui.th} cursor-pointer select-none whitespace-nowrap hover:text-electric`;
+  const pagerBtn = 'rounded-lg border border-gray-300 px-2.5 py-1 text-sm text-gray-700 transition hover:border-electric hover:text-electric disabled:cursor-not-allowed disabled:opacity-40';
+
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <Package className="text-blue-600" />
-            Inventario
-          </h1>
-          <div className="flex items-center gap-2 mt-1">
-            {/* Selector de Hoja */}
-            <div className="relative">
-              <button
-                onClick={() => setShowSheetSelector(!showSheetSelector)}
-                className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 text-sm"
-              >
-                <FileSpreadsheet size={16} className="text-blue-600" />
-                <span className="font-medium">{selectedSheet || 'Seleccionar hoja'}</span>
-                <ChevronDown size={16} className={`text-gray-500 transition-transform ${showSheetSelector ? 'rotate-180' : ''}`} />
-              </button>
+      <PageHeader
+        kicker="Almacén · Materiales"
+        title="Inventario"
+        icon={<Package size={22} />}
+        subtitle="Movimientos de materiales y medidores: ingresos, salidas y devoluciones por hoja."
+        actions={
+          <>
+            <button
+              onClick={refresh}
+              disabled={isLoading}
+              className={ui.btnSecondary}
+              title="Actualizar datos"
+            >
+              <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} />
+              Actualizar
+            </button>
+            <button
+              onClick={handleExport}
+              disabled={filteredRecords.length === 0}
+              className={ui.btnSuccess}
+              title="Exportar los registros filtrados a CSV"
+            >
+              <Download size={16} />
+              Exportar CSV
+            </button>
+          </>
+        }
+      />
 
-              {showSheetSelector && (
-                <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-20 max-h-64 overflow-y-auto">
-                  {sheets.length === 0 ? (
-                    <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                      No hay hojas de inventario
-                    </div>
-                  ) : (
-                    sheets.map((sheet) => (
-                      <button
-                        key={sheet.name}
-                        onClick={() => handleSheetChange(sheet.name)}
-                        className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 flex items-center justify-between ${
-                          selectedSheet === sheet.name ? 'bg-blue-50 text-blue-700' : 'text-gray-700'
-                        }`}
-                      >
-                        <span>{sheet.name}</span>
-                        <span className="text-xs text-gray-400">{sheet.recordCount} reg.</span>
-                      </button>
-                    ))
-                  )}
+      {/* Hoja activa (fuera del encabezado para que el menú no se recorte) */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">Hoja</span>
+        {/* Selector de Hoja */}
+        <div className="relative z-20">
+          <button
+            onClick={() => setShowSheetSelector(!showSheetSelector)}
+            className="flex items-center gap-2 rounded-xl border border-gray-300 bg-navy-900 px-3 py-1.5 text-sm text-gray-800 transition hover:border-electric"
+          >
+            <FileSpreadsheet size={16} className="text-electric" />
+            <span className="font-medium">{selectedSheet || 'Seleccionar hoja'}</span>
+            <ChevronDown size={16} className={`text-gray-500 transition-transform ${showSheetSelector ? 'rotate-180' : ''}`} />
+          </button>
+
+          {showSheetSelector && (
+            <div className="absolute left-0 top-full z-20 mt-1 max-h-64 w-64 overflow-y-auto rounded-xl border border-gray-200 bg-white py-1 shadow-2xl shadow-black/40">
+              {sheets.length === 0 ? (
+                <div className="px-4 py-3 text-center text-sm text-gray-500">
+                  No hay hojas de inventario
                 </div>
+              ) : (
+                sheets.map((sheet) => (
+                  <button
+                    key={sheet.name}
+                    onClick={() => handleSheetChange(sheet.name)}
+                    className={`flex w-full items-center justify-between px-4 py-2 text-left text-sm hover:bg-gray-50 ${
+                      selectedSheet === sheet.name ? 'bg-cyan-400/10 text-electric' : 'text-gray-700'
+                    }`}
+                  >
+                    <span>{sheet.name}</span>
+                    <span className="font-mono text-xs text-gray-400">{fmt(sheet.recordCount)} reg.</span>
+                  </button>
+                ))
               )}
             </div>
-
-            <span className="text-gray-400">|</span>
-            <span className="text-gray-500 text-sm">
-              {filteredRecords.length} registros
-            </span>
-          </div>
+          )}
         </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={refresh}
-            disabled={isLoading}
-            className="flex items-center gap-2 px-3 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
-            title="Actualizar"
-          >
-            <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
-          </button>
-          <button
-            onClick={handleExport}
-            disabled={filteredRecords.length === 0}
-            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
-          >
-            <Download size={18} />
-            Exportar
-          </button>
-        </div>
+        <span className="text-gray-400">·</span>
+        <span className="text-sm text-gray-500">
+          <span className="font-mono text-gray-700">{fmt(filteredRecords.length)}</span> registros
+        </span>
       </div>
 
       {/* Click outside handler */}
@@ -271,85 +282,95 @@ export default function InventoryPage() {
 
       {/* Error */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
           {error}
         </div>
       )}
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
-          <div className="flex items-center gap-2 text-blue-600 mb-1">
-            <PackagePlus size={18} />
-            <span className="text-sm font-medium">Ingresos</span>
-          </div>
-          <p className="text-2xl font-bold text-blue-700">+{stats.ingresos}</p>
-        </div>
-        <div className="bg-red-50 rounded-xl p-4 border border-red-100">
-          <div className="flex items-center gap-2 text-red-600 mb-1">
-            <PackageMinus size={18} />
-            <span className="text-sm font-medium">Salidas</span>
-          </div>
-          <p className="text-2xl font-bold text-red-700">-{stats.salidas}</p>
-        </div>
-        <div className="bg-green-50 rounded-xl p-4 border border-green-100">
-          <div className="flex items-center gap-2 text-green-600 mb-1">
-            <ReturnIcon size={18} />
-            <span className="text-sm font-medium">Devoluciones</span>
-          </div>
-          <p className="text-2xl font-bold text-green-700">+{stats.devoluciones}</p>
-        </div>
-        <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
-          <div className="flex items-center gap-2 text-gray-600 mb-1">
-            <Package size={18} />
-            <span className="text-sm font-medium">Balance</span>
-          </div>
-          <p className={`text-2xl font-bold ${stats.balance >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-            {stats.balance >= 0 ? '+' : ''}{stats.balance}
-          </p>
-        </div>
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <StatCard
+          label="Ingresos"
+          tone="blue"
+          icon={<PackagePlus size={18} />}
+          value={`+${fmt(stats.ingresos)}`}
+          hint="Unidades ingresadas"
+        />
+        <StatCard
+          label="Salidas"
+          tone="red"
+          icon={<PackageMinus size={18} />}
+          value={stats.salidas ? `−${fmt(stats.salidas)}` : "0"}
+          hint="Unidades entregadas"
+        />
+        <StatCard
+          label="Devoluciones"
+          tone="green"
+          icon={<ReturnIcon size={18} />}
+          value={`+${fmt(stats.devoluciones)}`}
+          hint="Unidades devueltas"
+        />
+        <StatCard
+          label="Neto"
+          tone="cyan"
+          icon={<Scale size={18} />}
+          value={`${stats.balance >= 0 ? '+' : '−'}${fmt(Math.abs(stats.balance))}`}
+          hint="Ingresos − Salidas + Devoluciones (registros filtrados)"
+        />
       </div>
 
       {/* Filtros */}
-      <div className="bg-white rounded-xl border border-gray-200 p-4">
-        <div className="flex flex-wrap items-center gap-4">
+      <SectionCard
+        title="Filtros"
+        icon={<Filter size={16} />}
+        actions={
+          (filters.search || filters.tipo !== 'todos' || filters.categoria !== 'todos' || filters.persona !== 'todos') ? (
+            <button
+              onClick={resetFilters}
+              className="flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-sm text-gray-600 transition hover:bg-gray-100 hover:text-electric"
+            >
+              <RotateCcw size={14} />
+              Limpiar filtros
+            </button>
+          ) : undefined
+        }
+        bodyClassName="p-4"
+      >
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {/* Busqueda */}
-          <div className="flex-1 min-w-[200px]">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
-              <input
-                type="text"
-                value={filters.search}
-                onChange={(e) => setFilter('search', e.target.value)}
-                placeholder="Buscar descripcion, persona, DNI..."
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
+          <div className="relative sm:col-span-2 lg:col-span-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+            <input
+              type="text"
+              value={filters.search}
+              onChange={(e) => setFilter('search', e.target.value)}
+              placeholder="Buscar descripción, persona, DNI…"
+              className={`${ui.input} pl-9`}
+            />
           </div>
 
           {/* Filtro tipo */}
-          <div className="flex items-center gap-2">
-            <Filter size={18} className="text-gray-500" />
-            <select
-              value={filters.tipo}
-              onChange={(e) => setFilter('tipo', e.target.value as any)}
-              className="border border-gray-300 rounded-lg px-3 py-2"
-            >
-              <option value="todos">Todos los tipos</option>
-              <option value="INGRESO">Ingresos</option>
-              <option value="SALIDA">Salidas</option>
-              <option value="DEVOL">Devoluciones</option>
-            </select>
-          </div>
+          <select
+            value={filters.tipo}
+            onChange={(e) => setFilter('tipo', e.target.value as any)}
+            className={ui.input}
+            aria-label="Tipo de movimiento"
+          >
+            <option value="todos">Todos los tipos</option>
+            <option value="INGRESO">Ingresos</option>
+            <option value="SALIDA">Salidas</option>
+            <option value="DEVOL">Devoluciones</option>
+          </select>
 
           {/* Filtro categoria */}
           {categorias.length > 0 && (
             <select
               value={filters.categoria}
               onChange={(e) => setFilter('categoria', e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2"
+              className={ui.input}
+              aria-label="Categoría"
             >
-              <option value="todos">Todas las categorias</option>
+              <option value="todos">Todas las categorías</option>
               {categorias.map(c => (
                 <option key={c} value={c}>{c}</option>
               ))}
@@ -361,7 +382,8 @@ export default function InventoryPage() {
             <select
               value={filters.persona}
               onChange={(e) => setFilter('persona', e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2"
+              className={ui.input}
+              aria-label="Persona"
             >
               <option value="todos">Todas las personas</option>
               {personas.map(p => (
@@ -369,91 +391,63 @@ export default function InventoryPage() {
               ))}
             </select>
           )}
-
-          {/* Limpiar filtros */}
-          {(filters.search || filters.tipo !== 'todos' || filters.categoria !== 'todos' || filters.persona !== 'todos') && (
-            <button
-              onClick={resetFilters}
-              className="flex items-center gap-1 px-3 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              <RotateCcw size={16} />
-              Limpiar
-            </button>
-          )}
         </div>
 
-        <div className="mt-3 text-sm text-gray-500">
-          Mostrando {filteredRecords.length} de {useInventoryStore.getState().records.length} registros
-        </div>
-      </div>
+        <p className="mt-3 text-xs text-gray-500">
+          Mostrando <span className="font-mono text-gray-700">{fmt(filteredRecords.length)}</span> de{' '}
+          <span className="font-mono text-gray-700">{fmt(useInventoryStore.getState().records.length)}</span> registros
+        </p>
+      </SectionCard>
 
       {/* Tabla */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className={ui.tableWrap}>
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-gray-50">
-              <tr>
-                <th
-                  className="text-left py-3 px-4 text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
-                  onClick={() => handleSort('numero')}
-                >
+            <thead>
+              <tr className={ui.theadRow}>
+                <th className={sortTh} onClick={() => handleSort('numero')}>
                   <span className="flex items-center gap-1">
-                    N
+                    N.º
                     <SortIcon field="numero" />
                   </span>
                 </th>
-                <th
-                  className="text-left py-3 px-4 text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
-                  onClick={() => handleSort('fecha')}
-                >
+                <th className={sortTh} onClick={() => handleSort('fecha')}>
                   <span className="flex items-center gap-1">
                     Fecha
                     <SortIcon field="fecha" />
                   </span>
                 </th>
-                <th
-                  className="text-left py-3 px-4 text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
-                  onClick={() => handleSort('tipo')}
-                >
+                <th className={sortTh} onClick={() => handleSort('tipo')}>
                   <span className="flex items-center gap-1">
                     Tipo
                     <SortIcon field="tipo" />
                   </span>
                 </th>
-                <th
-                  className="text-left py-3 px-4 text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
-                  onClick={() => handleSort('categoria')}
-                >
+                <th className={sortTh} onClick={() => handleSort('categoria')}>
                   <span className="flex items-center gap-1">
-                    Categoria
+                    Categoría
                     <SortIcon field="categoria" />
                   </span>
                 </th>
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">
-                  Descripcion
+                <th className={ui.th}>
+                  Descripción
                 </th>
-                <th
-                  className="text-left py-3 px-4 text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
-                  onClick={() => handleSort('cantidad')}
-                >
+                <th className={sortTh} onClick={() => handleSort('cantidad')}>
                   <span className="flex items-center gap-1">
-                    Cant.
+                    Cantidad
                     <SortIcon field="cantidad" />
                   </span>
                 </th>
-                <th
-                  className="text-left py-3 px-4 text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
-                  onClick={() => handleSort('persona')}
-                >
+                <th className={sortTh} onClick={() => handleSort('persona')}>
                   <span className="flex items-center gap-1">
                     Persona
                     <SortIcon field="persona" />
                   </span>
                 </th>
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">
+                <th className={ui.th}>
                   Estado
                 </th>
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">
+                <th className={ui.th}>
                   Foto
                 </th>
               </tr>
@@ -462,53 +456,53 @@ export default function InventoryPage() {
               {paginatedRecords.map((record, index) => (
                 <tr
                   key={`${record.numero}-${index}`}
-                  className="border-b border-gray-100 hover:bg-gray-50"
+                  className={ui.tbodyRow}
                 >
-                  <td className="py-3 px-4 text-gray-600 font-mono">
+                  <td className={`${ui.td} font-mono text-gray-500`}>
                     {record.numero}
                   </td>
-                  <td className="py-3 px-4 text-gray-600">
-                    <div>{record.fecha}</div>
-                    <div className="text-xs text-gray-400">{record.hora}</div>
+                  <td className={`${ui.td} whitespace-nowrap`}>
+                    <div className="font-mono">{record.fecha}</div>
+                    <div className="font-mono text-xs text-gray-400">{record.hora}</div>
                   </td>
-                  <td className="py-3 px-4">
+                  <td className={ui.td}>
                     <TipoBadge tipo={record.tipo} />
                   </td>
-                  <td className="py-3 px-4 text-gray-600">
-                    {record.categoria || '-'}
+                  <td className={ui.td}>
+                    {record.categoria ? <Badge tone="gray">{record.categoria}</Badge> : <span className="text-gray-400">—</span>}
                   </td>
-                  <td className="py-3 px-4 text-gray-900 max-w-[200px]">
+                  <td className={`${ui.td} max-w-[220px] text-gray-900`}>
                     <div className="truncate" title={record.descripcion}>
                       {record.descripcion}
                     </div>
                     {record.observaciones && (
-                      <div className="text-xs text-gray-400 truncate" title={record.observaciones}>
+                      <div className="truncate text-xs text-gray-400" title={record.observaciones}>
                         {record.observaciones}
                       </div>
                     )}
                   </td>
-                  <td className="py-3 px-4">
-                    <span className={`font-medium ${
-                      record.tipo === 'SALIDA' ? 'text-red-600' : 'text-green-600'
+                  <td className={ui.td}>
+                    <span className={`font-mono font-semibold ${
+                      record.tipo === 'SALIDA' ? 'text-red-700' : 'text-green-700'
                     }`}>
-                      {record.tipo === 'SALIDA' ? '-' : '+'}{record.cantidad}
+                      {record.tipo === 'SALIDA' ? '−' : '+'}{fmt(Math.abs(Number(record.cantidad) || 0))}
                     </span>
                   </td>
-                  <td className="py-3 px-4">
+                  <td className={ui.td}>
                     <div className="text-gray-900">{record.persona}</div>
                     {record.dni && (
-                      <div className="text-xs text-gray-400">DNI: {record.dni}</div>
+                      <div className="font-mono text-xs text-gray-400">DNI {record.dni}</div>
                     )}
                   </td>
-                  <td className="py-3 px-4 text-gray-600">
-                    {record.estado || '-'}
+                  <td className={ui.td}>
+                    {record.estado || <span className="text-gray-400">—</span>}
                   </td>
-                  <td className="py-3 px-4">
+                  <td className={ui.td}>
                     {record.fotoLink ? (
                       <div className="flex items-center gap-1">
                         <button
                           onClick={() => setSelectedRecord(record)}
-                          className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          className="rounded-lg p-2 text-electric transition-colors hover:bg-cyan-400/10"
                           title="Ver foto"
                         >
                           <Image size={16} />
@@ -517,14 +511,14 @@ export default function InventoryPage() {
                           href={record.fotoLink}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg transition-colors"
-                          title="Abrir en Drive"
+                          className="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
+                          title="Abrir en Google Drive"
                         >
                           <ExternalLink size={16} />
                         </a>
                       </div>
                     ) : (
-                      <span className="text-gray-300">-</span>
+                      <span className="text-gray-400">—</span>
                     )}
                   </td>
                 </tr>
@@ -534,30 +528,36 @@ export default function InventoryPage() {
         </div>
 
         {paginatedRecords.length === 0 && (
-          <div className="text-center py-12 text-gray-500">
-            {sheets.length === 0
+          <EmptyState
+            icon="inventario"
+            title={sheets.length === 0
               ? 'No hay hojas de inventario disponibles'
               : 'No se encontraron registros'
             }
-          </div>
+            description={sheets.length === 0
+              ? 'Cuando exista una hoja de inventario en la planilla aparecerá aquí.'
+              : 'Prueba con otra búsqueda o limpia los filtros.'
+            }
+          />
         )}
 
         {/* Paginacion */}
         {sortedRecords.length > 0 && (
-          <div className="px-4 py-3 border-t border-gray-200 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-4 border-t border-gray-200 px-4 py-3">
             <div className="flex items-center gap-4">
-              <span className="text-sm text-gray-600">
-                Mostrando {startIndex + 1}-{Math.min(endIndex, sortedRecords.length)} de {sortedRecords.length}
+              <span className="text-sm text-gray-500">
+                Mostrando <span className="font-mono text-gray-700">{fmt(startIndex + 1)}–{fmt(Math.min(endIndex, sortedRecords.length))}</span> de{' '}
+                <span className="font-mono text-gray-700">{fmt(sortedRecords.length)}</span>
               </span>
               <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-500">Filas:</span>
+                <span className="text-sm text-gray-500">Filas por página:</span>
                 <select
                   value={pageSize}
                   onChange={(e) => {
                     setPageSize(Number(e.target.value));
                     setCurrentPage(1);
                   }}
-                  className="border border-gray-300 rounded px-2 py-1 text-sm"
+                  className="rounded-lg border border-gray-300 bg-navy-900 px-2 py-1 font-mono text-sm outline-none focus:border-electric"
                 >
                   {PAGE_SIZES.map((size) => (
                     <option key={size} value={size}>{size}</option>
@@ -570,33 +570,35 @@ export default function InventoryPage() {
               <button
                 onClick={() => setCurrentPage(1)}
                 disabled={currentPage === 1}
-                className="px-2 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className={pagerBtn}
               >
                 Primera
               </button>
               <button
                 onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
                 disabled={currentPage === 1}
-                className="p-1 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className={pagerBtn}
+                title="Página anterior"
               >
-                <ChevronLeft size={18} />
+                <ChevronLeft size={16} />
               </button>
-              <span className="px-3 py-1 text-sm">
-                Pagina {currentPage} de {totalPages || 1}
+              <span className="px-2 text-sm text-gray-500">
+                Página <span className="font-mono text-gray-800">{currentPage}</span> de <span className="font-mono text-gray-800">{totalPages || 1}</span>
               </span>
               <button
                 onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
                 disabled={currentPage >= totalPages}
-                className="p-1 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className={pagerBtn}
+                title="Página siguiente"
               >
-                <ChevronRight size={18} />
+                <ChevronRight size={16} />
               </button>
               <button
                 onClick={() => setCurrentPage(totalPages)}
                 disabled={currentPage >= totalPages}
-                className="px-2 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className={pagerBtn}
               >
-                Ultima
+                Última
               </button>
             </div>
           </div>

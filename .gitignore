@@ -22,3 +22,19 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Respaldos locales (no subir)
+respaldo-apk-produccion/
+FOTOS DE REFERENCIA/
+
+apk-generadas/
+
+# Backend real (contiene IDs de la hoja y Drive): no subir al repo público
+/Code.gs
+/code.gs
+
+# Originales pesados de marca (el sitio usa public/brand)
+docs/brand-src/
+
+# App móvil: se respalda aparte (incluye keystore de firma)
+app-movil/

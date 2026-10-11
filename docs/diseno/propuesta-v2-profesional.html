@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TELCOM · Propuesta v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* Identidad de telcom (web corporativa) */
+  --navy-950:#060E1C; --navy-900:#0A1628; --navy-800:#0F1E36; --navy-700:#16294A; --line:#1D3352; --line-2:#284670;
+  --blue:#2563EB; --electric:#00D4FF; --energy:#FBBF24;
+  --text:#E8EEF8; --muted:#93A4C0; --dim:#62738F;
+  /* Estados (iguales en app, mapa y dashboard) */
+  --s-none:#64748B; --s-foto:#F59E0B; --s-ok:#10B981; --s-obs:#8B5CF6; --s-alert:#EF4444;
+  --r:12px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--navy-950);color:var(--text);font:14px/1.5 'Plus Jakarta Sans',system-ui,sans-serif}
+.mono{font-family:'JetBrains Mono',monospace}
+.kicker{font:700 10px Orbitron,sans-serif;letter-spacing:.22em;text-transform:uppercase;color:var(--electric)}
+h2.section{max-width:1400px;margin:36px auto 12px;padding:0 24px;font:700 13px Orbitron;letter-spacing:.2em;color:var(--dim)}
+
+/* ========== LOGIN ========== */
+.login{max-width:1400px;margin:0 auto;padding:0 24px}
+.login .frame{display:grid;grid-template-columns:1.25fr 1fr;min-height:560px;border:1px solid var(--line);border-radius:16px;overflow:hidden}
+.login .hero{position:relative;background:url(/Telcomdashboard/brand/hero-energia.webp) center/cover}
+.login .hero::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(6,14,28,.15),rgba(6,14,28,.55) 60%,var(--navy-900)),linear-gradient(0deg,rgba(6,14,28,.85),transparent 45%)}
+.login .hero .copy{position:absolute;left:36px;bottom:36px;z-index:1;max-width:440px}
+.login .hero h1{font:700 30px/1.15 'Plus Jakarta Sans';margin:8px 0 10px}
+.login .hero p{color:#c9d5e8}
+.login .stats{display:flex;gap:28px;margin-top:20px}
+.login .stats b{display:block;font:700 22px 'JetBrains Mono';color:var(--energy)}
+.login .stats span{font-size:12px;color:var(--muted)}
+.login .form{background:var(--navy-900);padding:48px 44px;display:flex;flex-direction:column;justify-content:center}
+.brand{display:flex;align-items:center;gap:12px}
+.brand img{width:52px;height:52px;object-fit:contain;filter:drop-shadow(0 4px 14px rgba(0,212,255,.25))}
+.brand b{display:block;font:700 18px Orbitron;letter-spacing:.12em}
+.brand small{font-size:11px;color:var(--muted);letter-spacing:.08em}
+.field{margin-top:18px}
+.field label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px;font-weight:600}
+.input{display:flex;align-items:center;gap:10px;height:46px;padding:0 14px;background:var(--navy-800);border:1px solid var(--line-2);border-radius:10px;color:var(--text)}
+.input:focus-within{border-color:var(--electric);box-shadow:0 0 0 3px rgba(0,212,255,.12)}
+.input span{color:var(--dim)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:44px;padding:0 18px;border-radius:10px;border:0;font:600 14px 'Plus Jakarta Sans';cursor:pointer}
+.btn.primary{background:linear-gradient(180deg,#2F6BF0,var(--blue));color:#fff;box-shadow:0 6px 18px rgba(37,99,235,.35),inset 0 1px 0 rgba(255,255,255,.18)}
+.btn.ghost{background:transparent;color:var(--text);border:1px solid var(--line-2)}
+.btn.energy{background:var(--energy);color:#1a1200}
+
+/* ========== APP SHELL ========== */
+.shell{max-width:1400px;margin:0 auto;padding:0 24px}
+.app{display:grid;grid-template-columns:240px 1fr;border:1px solid var(--line);border-radius:16px;overflow:hidden;background:var(--navy-900)}
+aside{background:var(--navy-950);border-right:1px solid var(--line);padding:20px 14px;display:flex;flex-direction:column;gap:4px}
+aside .brand{padding:0 6px 18px;border-bottom:1px solid var(--line);margin-bottom:12px}
+aside .brand img{width:40px;height:40px}
+aside .brand b{font-size:15px}
+.nav a{display:flex;align-items:center;gap:12px;padding:9px 12px;border-radius:9px;color:var(--muted);text-decoration:none;font-weight:500}
+.nav a:hover{background:var(--navy-800);color:var(--text)}
+.nav a.on{background:linear-gradient(90deg,rgba(37,99,235,.22),rgba(37,99,235,.04));color:#fff;box-shadow:inset 2px 0 0 var(--electric)}
+.nav svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8}
+.nav .grp{margin:16px 12px 6px;font:700 9px Orbitron;letter-spacing:.24em;color:var(--dim)}
+aside .foot{margin-top:auto;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--navy-900);font-size:12px;color:var(--muted)}
+aside .foot b{color:var(--s-ok)}
+
+main{min-width:0}
+.topbar{display:flex;align-items:center;gap:14px;height:64px;padding:0 24px;border-bottom:1px solid var(--line);background:rgba(10,22,40,.85)}
+.jsw{display:flex;align-items:center;gap:12px;padding:6px 12px;border:1px solid var(--line-2);border-radius:10px;background:var(--navy-800)}
+.jsw .t{font-size:11px;color:var(--dim)} .jsw .v{font-weight:700}
+.jsw .pb{width:96px;height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+.jsw .pb i{display:block;height:100%;width:13.4%;background:linear-gradient(90deg,var(--blue),var(--electric))}
+.search{flex:1;max-width:420px;display:flex;align-items:center;gap:10px;height:38px;padding:0 12px;border:1px solid var(--line);border-radius:10px;color:var(--dim);background:var(--navy-950)}
+.search kbd{margin-left:auto;font:11px 'JetBrains Mono';border:1px solid var(--line-2);border-radius:5px;padding:1px 6px}
+.sp{flex:1}
+.status{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--s-ok)}
+.status::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--s-ok);box-shadow:0 0 0 4px rgba(16,185,129,.15)}
+.me{display:flex;align-items:center;gap:10px}
+.me .av{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;font-weight:700;background:linear-gradient(135deg,#2196F3,#1565C0)}
+.me small{display:block;color:var(--energy);font-size:11px;font-weight:600}
+
+.content{padding:22px 24px 28px}
+.banner{position:relative;border-radius:var(--r);overflow:hidden;border:1px solid var(--line);min-height:150px;padding:22px 26px;display:flex;align-items:flex-end;justify-content:space-between;
+  background:linear-gradient(90deg,var(--navy-900) 30%,rgba(10,22,40,.55) 70%,rgba(10,22,40,.2)),url(/Telcomdashboard/brand/hero-torre.webp) right center/cover}
+.banner h1{font-size:26px;font-weight:700;margin-top:6px}
+.banner p{color:var(--muted)}
+.banner .acts{display:flex;gap:10px}
+
+.card{position:relative;background:linear-gradient(180deg,var(--navy-800),var(--navy-900));border:1px solid var(--line);border-radius:var(--r);padding:16px 18px}
+.card::before{content:"";position:absolute;left:18px;right:18px;top:-1px;height:1px;background:linear-gradient(90deg,transparent,rgba(0,212,255,.55),transparent)}
+.ch{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.ch h3{font-size:14px;font-weight:700}
+.pill{font-size:11px;font-weight:600;padding:3px 9px;border-radius:999px;border:1px solid var(--line-2);color:var(--muted)}
+/* esquinas HUD (solo en paneles clave) */
+.hud{--c:rgba(0,212,255,.7)}
+.hud>.corner{position:absolute;width:14px;height:14px;border:2px solid var(--c)}
+.hud>.tl{top:-1px;left:-1px;border-right:0;border-bottom:0;border-top-left-radius:var(--r)}
+.hud>.tr{top:-1px;right:-1px;border-left:0;border-bottom:0;border-top-right-radius:var(--r)}
+.hud>.bl{bottom:-1px;left:-1px;border-right:0;border-top:0;border-bottom-left-radius:var(--r)}
+.hud>.br{bottom:-1px;right:-1px;border-left:0;border-top:0;border-bottom-right-radius:var(--r)}
+
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:14px 0}
+.kpi .l{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);font-weight:600}
+.kpi .dot{width:8px;height:8px;border-radius:2px}
+.kpi .n{font:700 32px/1.1 'JetBrains Mono';margin-top:8px;letter-spacing:-.02em}
+.kpi .d{font-size:12px;color:var(--dim);margin-top:4px}
+.kpi .d b{color:var(--s-ok);font-weight:600}
+.kpi svg{position:absolute;right:16px;top:18px}
+
+.g2{display:grid;grid-template-columns:1.6fr 1fr;gap:14px;margin-bottom:14px}
+.g3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.map{padding:0;height:330px;overflow:hidden}
+.map svg.m{width:100%;height:100%;display:block}
+.map .ov{position:absolute;left:14px;top:14px;display:flex;gap:8px}
+.map .lg{position:absolute;left:14px;bottom:12px;display:flex;gap:14px;font-size:12px;color:var(--muted);background:rgba(6,14,28,.75);padding:6px 10px;border-radius:8px;border:1px solid var(--line)}
+.lg i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:-1px}
+
+.prog .big{font:700 40px/1 'JetBrains Mono'} .prog .big small{font-size:18px;color:var(--muted)}
+.bar{display:flex;height:10px;border-radius:5px;overflow:hidden;gap:2px;margin:16px 0 12px}
+.rows .r{display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}
+.rows .r b{color:var(--text);font-family:'JetBrains Mono'}
+
+.tech .t{display:grid;grid-template-columns:32px 1fr 56px;gap:12px;align-items:center;padding:9px 0;border-top:1px solid var(--line)}
+.tech .av{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;font-weight:700;font-size:13px;color:#fff}
+.tech .nm{font-size:13px;font-weight:500}
+.tech .mt{height:6px;border-radius:3px;background:var(--line);margin-top:6px;overflow:hidden}
+.tech .mt i{display:block;height:100%;border-radius:3px}
+.tech .pc{text-align:right;font:600 13px 'JetBrains Mono'}
+
+.feed .f{display:grid;grid-template-columns:44px 1fr auto;gap:12px;align-items:center;padding:9px 0;border-top:1px solid var(--line)}
+.feed .th{width:44px;height:44px;border-radius:8px;background:url(/Telcomdashboard/brand/hero-energia.webp) center/cover;filter:saturate(.7)}
+.feed small{color:var(--dim);font-size:12px}
+.badge{font-size:11px;font-weight:600;padding:3px 8px;border-radius:6px}
+
+.alert{display:flex;gap:12px;align-items:flex-start;padding:11px 12px;border-radius:10px;margin-top:8px;font-size:13px;border:1px solid}
+.alert.r{background:rgba(239,68,68,.07);border-color:rgba(239,68,68,.3)}
+.alert.a{background:rgba(245,158,11,.07);border-color:rgba(245,158,11,.3)}
+
+.empty{display:flex;align-items:center;gap:20px}
+.empty img{width:120px;height:120px;object-fit:contain;filter:drop-shadow(0 10px 24px rgba(0,212,255,.25))}
+.empty h4{font-size:16px;margin-bottom:4px} .empty p{color:var(--muted);font-size:13px;margin-bottom:12px}
+
+.pal{display:grid;grid-template-columns:repeat(8,1fr);gap:10px}
+.sw{border-radius:10px;height:70px;padding:8px;display:flex;flex-direction:column;justify-content:flex-end;font:600 11px 'JetBrains Mono';color:#06101f}
+.sw.dk{color:var(--text);border:1px solid var(--line-2)}
+.pdf{background:#fff;color:#1f2937;border-radius:10px;padding:16px 18px;font-size:12px;border:1px solid #d1d5db}
+.pdf .hd{display:flex;align-items:center;gap:12px;border-bottom:3px solid #2563EB;padding-bottom:10px;margin-bottom:10px}
+.pdf .hd img{width:46px;height:46px}
+.pdf b{color:#0A1628}
+@media(max-width:1100px){.login .frame,.app,.g2{grid-template-columns:1fr}.login .hero{min-height:320px}aside{display:none}.kpis{grid-template-columns:repeat(2,1fr)}.g3{grid-template-columns:1fr}.pal{grid-template-columns:repeat(4,1fr)}}
+</style>
+</head>
+<body>
+
+<h2 class="section">01 · ACCESO</h2>
+<section class="login"><div class="frame">
+  <div class="hero"><div class="copy">
+    <div class="kicker">Ingeniería Telcom E.I.R.L.</div>
+    <h1>Supervisión de campo en tiempo real</h1>
+    <p>Contrastes, lecturas y evidencia fotográfica georreferenciada de cada suministro, desde la calle hasta el informe.</p>
+    <div class="stats"><div><b>2,773</b><span>suministros</span></div><div><b>22</b><span>técnicos</span></div><div><b>1,143</b><span>fotos hoy</span></div></div>
+  </div></div>
+  <div class="form">
+    <div class="brand"><img src="/brand/isotipo.webp" alt=""><div><b>TELCOM</b><small>CENTRO DE OPERACIONES</small></div></div>
+    <h2 style="margin-top:34px;font-size:22px">Iniciar sesión</h2>
+    <p style="color:var(--muted)">Accede con tu cuenta corporativa</p>
+    <div class="field"><label>Correo electrónico</label><div class="input"><span>✉</span>supervisor@telcom.pe</div></div>
+    <div class="field"><label>Contraseña</label><div class="input"><span>🔒</span>••••••••••<span style="margin-left:auto">👁</span></div></div>
+    <button class="btn primary" style="margin-top:24px;width:100%">Ingresar</button>
+    <p style="margin-top:18px;font-size:12px;color:var(--dim);text-align:center">© 2026 Ingeniería Telcom E.I.R.L. · v2.0</p>
+  </div>
+</div></section>
+
+<h2 class="section">02 · PANEL PRINCIPAL</h2>
+<section class="shell"><div class="app">
+  <aside>
+    <div class="brand"><img src="/brand/isotipo.webp" alt=""><div><b>TELCOM</b><small>Centro de Operaciones</small></div></div>
+    <nav class="nav">
+      <a class="on" href="#"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Panel</a>
+      <a href="#"><svg viewBox="0 0 24 24"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2zM9 4v14M15 6v14"/></svg>Mapa operativo</a>
+      <a href="#"><svg viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>Suministros</a>
+      <a href="#"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Jornadas</a>
+      <div class="grp">SUPERVISIÓN</div>
+      <a href="#"><svg viewBox="0 0 24 24"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/></svg>Reportes</a>
+      <a href="#"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16v1"/></svg>Observados</a>
+      <a href="#"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>Rastreo</a>
+      <a href="#"><svg viewBox="0 0 24 24"><path d="M3 8 12 3l9 5-9 5-9-5zM3 8v8l9 5 9-5V8"/></svg>Inventario</a>
+      <div class="grp">SISTEMA</div>
+      <a href="#"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21c0-4 3-6 7-6s7 2 7 6M17 11a3 3 0 1 0 0-6M22 21c0-3-2-5-4-5.5"/></svg>Usuarios</a>
+    </nav>
+    <div class="foot">Sincronización <b>● activa</b><br><span class="mono">Última: hace 2 min</span></div>
+  </aside>
+  <main>
+    <div class="topbar">
+      <div class="jsw"><div><div class="t">Jornada</div><div class="v">SEMANA 21</div></div><div class="pb"><i></i></div><span class="mono" style="color:var(--electric);font-size:12px">13.4%</span></div>
+      <div class="search">⌕ Buscar suministro, técnico, serie…<kbd>Ctrl K</kbd></div>
+      <div class="sp"></div>
+      <div class="status">Operativo</div>
+      <div class="me"><div style="text-align:right"><div style="font-weight:600">Darwin Canaza</div><small>Administrador</small></div><div class="av">DC</div></div>
+    </div>
+    <div class="content">
+      <div class="banner">
+        <div><div class="kicker">Jornada activa · Puno</div><h1>Supervisión de contrastes — Semana 21</h1><p>Actualizado hace 2 min · 22 técnicos en campo</p></div>
+        <div class="acts"><button class="btn ghost">Exportar informe</button><button class="btn primary">Asignar área</button></div>
+      </div>
+
+      <div class="kpis">
+        <div class="card kpi"><div class="l"><span class="dot" style="background:var(--electric)"></span>Total suministros</div><div class="n">2,773</div><div class="d">22 técnicos asignados</div>
+          <svg width="84" height="28"><polyline fill="none" stroke="#00D4FF" stroke-width="2" points="0,24 14,21 28,22 42,14 56,16 70,8 84,6"/></svg></div>
+        <div class="card kpi"><div class="l"><span class="dot" style="background:var(--s-ok)"></span>Completados</div><div class="n" style="color:var(--s-ok)">373</div><div class="d"><b>▲ 41</b> hoy</div>
+          <svg width="84" height="28"><polyline fill="none" stroke="#10B981" stroke-width="2" points="0,26 14,23 28,19 42,20 56,11 70,9 84,3"/></svg></div>
+        <div class="card kpi"><div class="l"><span class="dot" style="background:var(--s-foto)"></span>En proceso</div><div class="n" style="color:var(--s-foto)">1</div><div class="d">Foto sin lectura</div></div>
+        <div class="card kpi"><div class="l"><span class="dot" style="background:var(--s-none)"></span>Sin visita</div><div class="n">2,399</div><div class="d">86.5% del total</div></div>
+      </div>
+
+      <div class="g2">
+        <div class="card map hud"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+          <svg class="m" viewBox="0 0 800 330" preserveAspectRatio="xMidYMid slice">
+            <rect width="800" height="330" fill="#0B1A30"/>
+            <path d="M560 0 C 520 90 610 140 580 220 C 560 280 640 320 800 300 L800 0Z" fill="#0E2A44"/>
+            <g stroke="#1D3352" fill="none" stroke-width="1.2"><path d="M0 120 C 200 100 300 160 520 130"/><path d="M60 0 C 120 120 160 220 140 330"/><path d="M0 230 C 180 210 330 250 560 220"/><path d="M300 0 C 280 120 330 220 300 330"/><path d="M420 0 C 440 90 400 200 450 330"/></g>
+            <g id="pts"></g>
+            <path d="M260 120 L 400 105 L 430 210 L 300 250 Z" fill="rgba(37,99,235,.12)" stroke="#00D4FF" stroke-dasharray="5 5"/>
+          </svg>
+          <div class="ov"><span class="pill" style="background:rgba(6,14,28,.8)">Mapa operativo</span><span class="pill" style="background:rgba(6,14,28,.8);color:var(--electric);border-color:rgba(0,212,255,.4)">Zona seleccionada · 86 puntos</span></div>
+          <div class="lg"><span><i style="background:var(--s-none)"></i>Sin visita</span><span><i style="background:var(--s-foto)"></i>Fotografiado</span><span><i style="background:var(--s-ok)"></i>Completado</span><span><i style="background:var(--s-obs)"></i>Observado</span></div>
+        </div>
+        <div class="card prog">
+          <div class="ch"><h3>Avance de la jornada</h3><span class="pill">Semana 21</span></div>
+          <div class="big">13.4<small>%</small></div><div style="color:var(--muted);font-size:13px">374 de 2,773 suministros visitados</div>
+          <div class="bar"><div style="flex:373;background:var(--s-ok)"></div><div style="flex:40;background:var(--s-foto)"></div><div style="flex:75;background:var(--s-obs)"></div><div style="flex:2285;background:var(--line-2)"></div></div>
+          <div class="rows">
+            <div class="r"><span>Fotos sincronizadas</span><b>1,143</b></div>
+            <div class="r"><span>Contraste ejecutado</span><b style="color:var(--s-ok)">298</b></div>
+            <div class="r"><span>No ejecutado</span><b style="color:var(--s-alert)">0</b></div>
+            <div class="r"><span>Con observación</span><b style="color:var(--s-obs)">75</b></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="g3">
+        <div class="card tech">
+          <div class="ch"><h3>Rendimiento por técnico</h3><span class="pill">Top 5</span></div>
+          <div class="t"><div class="av" style="background:#4CAF50">ME</div><div><div class="nm">Mendoza Cuavoy Enrique II</div><div class="mt"><i style="width:70%;background:#4CAF50"></i></div></div><div class="pc">70.6%</div></div>
+          <div class="t"><div class="av" style="background:#FF9800">RR</div><div><div class="nm">Roza Coronel Raúl</div><div class="mt"><i style="width:52%;background:#FF9800"></i></div></div><div class="pc">52.4%</div></div>
+          <div class="t"><div class="av" style="background:#00BCD4">SD</div><div><div class="nm">Saccsahuillca Huamán D.</div><div class="mt"><i style="width:50%;background:#00BCD4"></i></div></div><div class="pc">50.0%</div></div>
+          <div class="t"><div class="av" style="background:#E91E63">AR</div><div><div class="nm">Adco Apaza Roger II</div><div class="mt"><i style="width:19%;background:#E91E63"></i></div></div><div class="pc">19.0%</div></div>
+        </div>
+        <div class="card feed">
+          <div class="ch"><h3>Actividad reciente</h3><span class="pill" style="color:var(--s-ok);border-color:rgba(16,185,129,.4)">● En vivo</span></div>
+          <div class="f"><div class="th"></div><div><div class="mono">11090031101</div><small>Mendoza E. · hace 3 min · Lectura 12345.6</small></div><span class="badge" style="background:rgba(16,185,129,.15);color:var(--s-ok)">Ejecutado</span></div>
+          <div class="f"><div class="th" style="background-position:left"></div><div><div class="mono">11090031125</div><small>Roza R. · hace 9 min</small></div><span class="badge" style="background:rgba(139,92,246,.15);color:var(--s-obs)">Observado</span></div>
+          <div class="f"><div class="th" style="background-position:right"></div><div><div class="mono">11090031133</div><small>Saccsahuillca D. · hace 14 min</small></div><span class="badge" style="background:rgba(245,158,11,.15);color:var(--s-foto)">Sin lectura</span></div>
+        </div>
+        <div class="card">
+          <div class="ch"><h3>Alertas de control</h3><span class="pill" style="color:var(--s-alert);border-color:rgba(239,68,68,.4)">3 activas</span></div>
+          <div class="alert r"><b style="color:var(--s-alert)">!</b><div>Foto tomada a <b class="mono">412 m</b> del punto de referencia — 11090031088</div></div>
+          <div class="alert a"><b style="color:var(--s-foto)">i</b><div>8 técnicos sin sincronizar hace más de 2 h</div></div>
+          <div class="alert a"><b style="color:var(--s-foto)">i</b><div>Stock bajo: precintos de seguridad (12 u.)</div></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:14px">
+        <div class="empty"><img src="/brand/icon-medidor.webp" alt="">
+          <div><div class="kicker">Estado vacío · ejemplo</div><h4>Esta jornada aún no tiene lecturas</h4><p>Cuando los técnicos registren medidores desde la app, aparecerán aquí listos para el informe.</p><button class="btn ghost">Ver guía de la app</button></div></div>
+      </div>
+    </div>
+  </main>
+</div></section>
+
+<h2 class="section">03 · IDENTIDAD</h2>
+<section class="shell" style="margin-bottom:48px">
+  <div class="card">
+    <div class="pal">
+      <div class="sw dk" style="background:#060E1C">#060E1C<br>fondo</div>
+      <div class="sw dk" style="background:#0F1E36">#0F1E36<br>panel</div>
+      <div class="sw" style="background:#2563EB;color:#fff">#2563EB<br>acción</div>
+      <div class="sw" style="background:#00D4FF">#00D4FF<br>datos</div>
+      <div class="sw" style="background:#FBBF24">#FBBF24<br>energía</div>
+      <div class="sw" style="background:#10B981">#10B981<br>completado</div>
+      <div class="sw" style="background:#F59E0B">#F59E0B<br>fotografiado</div>
+      <div class="sw" style="background:#8B5CF6;color:#fff">#8B5CF6<br>observado</div>
+    </div>
+    <p style="color:var(--muted);margin:14px 0 10px;font-size:13px">Tipografías: <b style="font-family:Orbitron">ORBITRON</b> solo para marca y etiquetas · <b>Plus Jakarta Sans</b> para la interfaz · <b class="mono">JetBrains Mono</b> para cifras, suministros y coordenadas. Mismas fuentes y colores que la web corporativa.</p>
+    <div class="pdf" style="max-width:560px">
+      <div class="hd"><img src="/brand/logo-square.webp" alt=""><div><b>INGENIERÍA TELCOM E.I.R.L.</b><br>Anexo fotográfico · Supervisión de programación</div></div>
+      Suministro <b>11090031101</b> · Lectura 12345.6 · 10/10/2026 15:00<br>CONTRATISTA MALCOM EJECUTÓ EL CONTRASTE EN LA FECHA PROGRAMADA
+      <div style="margin-top:6px;color:#6b7280">Los informes PDF se mantienen corporativos, en blanco, con el modelo actual y el logo oficial.</div>
+    </div>
+  </div>
+</section>
+
+<script>
+const g=document.getElementById('pts'),C=['#64748B','#64748B','#64748B','#64748B','#64748B','#10B981','#F59E0B','#8B5CF6'];
+let s=11;const r=()=>(s=(s*9301+49297)%233280)/233280;
+for(let i=0;i<300;i++){const x=40+r()*500,y=20+r()*295,c=C[Math.floor(r()*C.length)];
+ const e=document.createElementNS('http://www.w3.org/2000/svg','circle');e.setAttribute('cx',x);e.setAttribute('cy',y);e.setAttribute('r',3.2);e.setAttribute('fill',c);
+ e.setAttribute('stroke','#0B1A30');e.setAttribute('stroke-width','1');g.appendChild(e);}
+</script>
+</body>
+</html>

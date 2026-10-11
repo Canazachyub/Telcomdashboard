@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { getImageBase64 } from '../services/observadosService';
+import { supervisionObservadosTitle } from '../config/report';
 
 // Tipo para los datos del reporte OBSERVADOS
 export interface ObservadoPDFData {
@@ -183,7 +184,7 @@ export async function generateObservadoPDFBlob(data: ObservadoPDFData): Promise<
   doc.text('ANEXO FOTOGRAFICO - OBSERVADOS', pageWidth / 2, 17, { align: 'center' });
 
   doc.setFontSize(9);
-  const supervisionText = `SUPERVISION DE SUMINISTROS OBSERVADOS - P227 - SEMANA ${data.semana || '?'}`;
+  const supervisionText = supervisionObservadosTitle(data.semana);
   doc.text(supervisionText, pageWidth / 2, 24, { align: 'center' });
 
   yPos = headerHeight + 6;
@@ -413,7 +414,7 @@ export function generateObservadoPDFSimpleBlob(data: ObservadoPDFData): { blob: 
   doc.text('ANEXO FOTOGRAFICO - OBSERVADOS', pageWidth / 2, 17, { align: 'center' });
 
   doc.setFontSize(9);
-  doc.text(`SUPERVISION DE SUMINISTROS OBSERVADOS - P227 - SEMANA ${data.semana || '?'}`, pageWidth / 2, 24, { align: 'center' });
+  doc.text(supervisionObservadosTitle(data.semana), pageWidth / 2, 24, { align: 'center' });
 
   yPos = headerHeight + 6;
 

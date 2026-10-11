@@ -83,6 +83,14 @@ export const useGPSStore = create<GPSState>((set, get) => ({
 
   // Cargar datos de tracking desde fotos
   loadTracking: async () => {
+    // Mostrar al instante el último resultado conocido mientras llega el nuevo
+    if (get().tecnicos.length === 0) {
+      const cached = readTrackingCache();
+      if (cached) {
+        set(buildTrackingState(cached.tecnicos, cached.stats, cached.savedAt));
+        get().applyFilters();
+      }
+    }
     set({ isLoading: true, error: null });
 
     try {
@@ -97,32 +105,9 @@ export const useGPSStore = create<GPSState>((set, get) => ({
       };
 
       if (responseData.success && responseData.tecnicos) {
-        const tecnicos = responseData.tecnicos;
-        const odtStats = responseData.stats || emptyODTStats;
-
-        // Convertir técnicos a entidades del mapa (solo los que tienen ubicación)
-        const entities: GPSEntity[] = tecnicos
-          .map(odtToEntity)
-          .filter((e): e is GPSEntity => e !== null);
-
-        // Convertir ODTStats a GPSStats para compatibilidad
-        const stats: GPSStats = {
-          totalPersonal: odtStats.total,
-          personalOnline: odtStats.online,
-          personalOffline: odtStats.offline,
-          totalVehiculos: 0,
-          vehiculosOnline: 0,
-          vehiculosOffline: 0,
-        };
-
-        set({
-          tecnicos,
-          odtStats,
-          entities,
-          stats,
-          isLoading: false,
-          lastUpdated: new Date().toISOString(),
-        });
+        const savedAt = new Date().toISOString();
+        writeTrackingCache(responseData.tecnicos, responseData.stats || emptyODTStats, savedAt);
+        set({ ...buildTrackingState(responseData.tecnicos, responseData.stats || emptyODTStats, savedAt), isLoading: false });
 
         // Aplicar filtros
         get().applyFilters();
@@ -200,3 +185,38 @@ export const useFilters = () => useGPSStore((state) => state.filters);
 export const useSelectedEntity = () => useGPSStore((state) => state.selectedEntity);
 export const useIsLoading = () => useGPSStore((state) => state.isLoading);
 export const useLastUpdated = () => useGPSStore((state) => state.lastUpdated);
+
+// ---- Caché local del último rastreo (para no mostrar el mapa vacío mientras responde el servidor) ----
+const TRACKING_CACHE_KEY = 'telcom-tracking-cache';
+
+function buildTrackingState(tecnicos: ODTTecnico[], odtStats: ODTStats, lastUpdated: string) {
+  // Convertir técnicos a entidades del mapa (solo los que tienen ubicación)
+  const entities: GPSEntity[] = tecnicos.map(odtToEntity).filter((e): e is GPSEntity => e !== null);
+  // Convertir ODTStats a GPSStats para compatibilidad
+  const stats: GPSStats = {
+    totalPersonal: odtStats.total,
+    personalOnline: odtStats.online,
+    personalOffline: odtStats.offline,
+    totalVehiculos: 0,
+    vehiculosOnline: 0,
+    vehiculosOffline: 0,
+  };
+  return { tecnicos, odtStats, entities, stats, lastUpdated };
+}
+
+function readTrackingCache(): { tecnicos: ODTTecnico[]; stats: ODTStats; savedAt: string } | null {
+  try {
+    const raw = localStorage.getItem(TRACKING_CACHE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeTrackingCache(tecnicos: ODTTecnico[], stats: ODTStats, savedAt: string) {
+  try {
+    localStorage.setItem(TRACKING_CACHE_KEY, JSON.stringify({ tecnicos, stats, savedAt }));
+  } catch {
+    // almacenamiento lleno o bloqueado: no es crítico
+  }
+}

@@ -1,15 +1,19 @@
+import { useSuministroDrawer } from '../stores/suministroDrawerStore';
 import { useState, useMemo, useRef } from 'react';
 import { usePointsStore, useSheetStructure, useTecnicos, useDistritos, useFilters, useIsTecnico } from '../stores/pointsStore';
 import { getPointStatus, getStatusLabel } from '../types/point';
 import {
   Search, Filter, Download, Camera, MapPin, Users, Building2, RotateCcw,
   ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Upload,
-  FileSpreadsheet, X, AlertCircle, CheckCircle, RefreshCw, ChevronDown
+  FileSpreadsheet, X, AlertCircle, CheckCircle, RefreshCw, ChevronDown, Zap
 } from 'lucide-react';
+import { PageHeader, StatCard, SectionCard, EmptyState, Badge, STATUS_UI, ui } from '../components/ui';
 import type { GpsPoint, GpsPointExtended } from '../types/point';
 import PhotoGalleryModal from '../components/PhotoGalleryModal';
 import * as XLSX from 'xlsx';
 import { API_POINTS } from '../config/api';
+import { downloadCsv, type CsvValue } from '../utils/csv';
+import { formatCoords } from '../utils/format';
 
 // Configuración de paginación
 const PAGE_SIZES = [25, 50, 100, 200];
@@ -302,7 +306,7 @@ function UploadModal({ isOpen, onClose, currentSheet, sheets, onSuccess }: Uploa
         }
       } catch (err) {
         console.error('Error parsing file:', err);
-        setError('Error al parsear el archivo. Verifica que sea un Excel o CSV válido.');
+        setError('No se pudo leer el archivo. Verifica que sea un Excel o CSV válido.');
       }
     };
 
@@ -322,7 +326,7 @@ function UploadModal({ isOpen, onClose, currentSheet, sheets, onSuccess }: Uploa
     // Validar nombre de hoja
     const targetSheetName = sheetMode === 'new' ? newSheetName.trim() : selectedExistingSheet;
     if (!targetSheetName) {
-      setError(sheetMode === 'new' ? 'Ingresa un nombre para la nueva hoja' : 'Selecciona una hoja existente');
+      setError(sheetMode === 'new' ? 'Ingresa un nombre para la nueva jornada' : 'Selecciona una jornada existente');
       return;
     }
 
@@ -383,24 +387,30 @@ function UploadModal({ isOpen, onClose, currentSheet, sheets, onSuccess }: Uploa
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl mx-4 max-h-[90vh] overflow-hidden flex flex-col">
-        <div className="flex items-center justify-between p-4 border-b bg-gradient-to-r from-blue-600 to-blue-700">
-          <div>
-            <h3 className="text-lg font-semibold text-white flex items-center gap-2">
-              <Upload size={20} />
-              Importar Suministros desde Excel
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+      <div className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-4">
+          <div className="min-w-0">
+            <p className="brand-kicker">Importación</p>
+            <h3 className="mt-1 flex items-center gap-2 text-lg font-semibold text-gray-900">
+              <Upload size={20} className="text-electric" />
+              Importar suministros desde Excel
             </h3>
-            <p className="text-blue-100 text-sm">Crea una nueva jornada o agrega a una existente</p>
+            <p className="mt-0.5 text-sm text-gray-500">Crea una nueva jornada o agrega suministros a una existente</p>
           </div>
-          <button onClick={handleClose} className="p-1 hover:bg-white/20 rounded text-white">
+          <button
+            onClick={handleClose}
+            className="rounded-lg p-1.5 text-gray-500 transition hover:bg-gray-100 hover:text-gray-900"
+            title="Cerrar"
+            aria-label="Cerrar"
+          >
             <X size={20} />
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div className="flex-1 space-y-4 overflow-y-auto p-5">
           {/* Selector de archivo */}
-          <div className="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center hover:border-blue-400 transition-colors">
+          <div className="rounded-2xl border-2 border-dashed border-gray-300 bg-gray-50 p-6 text-center transition-colors hover:border-electric/60">
             <input
               ref={fileInputRef}
               type="file"
@@ -408,29 +418,30 @@ function UploadModal({ isOpen, onClose, currentSheet, sheets, onSuccess }: Uploa
               onChange={handleFileChange}
               className="hidden"
             />
-            <FileSpreadsheet className="mx-auto text-gray-400 mb-3" size={48} />
+            <FileSpreadsheet className="mx-auto mb-3 text-electric" size={44} />
             {file ? (
               <div>
                 <p className="font-medium text-gray-900">{file.name}</p>
-                <p className="text-sm text-gray-500">{(file.size / 1024).toFixed(1)} KB</p>
+                <p className="font-mono text-sm text-gray-500">{(file.size / 1024).toFixed(1)} KB</p>
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  className="mt-2 text-blue-600 hover:text-blue-700 text-sm"
+                  className={`${ui.btnSecondary} mt-3`}
                 >
                   Cambiar archivo
                 </button>
               </div>
             ) : (
               <div>
-                <p className="text-gray-600 mb-2">Arrastra un archivo Excel aqui o</p>
+                <p className="mb-3 text-sm text-gray-600">Selecciona el archivo con la lista de suministros</p>
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                  className={ui.btnPrimary}
                 >
-                  Seleccionar Archivo
+                  <FileSpreadsheet size={16} />
+                  Seleccionar archivo
                 </button>
-                <p className="text-xs text-gray-500 mt-2">
-                  Formatos soportados: Excel (.xlsx, .xls) o CSV
+                <p className="mt-3 text-xs text-gray-500">
+                  Formatos admitidos: Excel (.xlsx, .xls) o CSV
                 </p>
               </div>
             )}
@@ -438,16 +449,16 @@ function UploadModal({ isOpen, onClose, currentSheet, sheets, onSuccess }: Uploa
 
           {/* Columnas detectadas */}
           {detectedColumns.length > 0 && (
-            <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-              <h4 className="font-medium text-green-800 mb-2 text-sm flex items-center gap-1">
+            <div className="rounded-xl border border-green-200 bg-green-50 p-3">
+              <h4 className="mb-2 flex items-center gap-1.5 text-sm font-medium text-green-800">
                 <CheckCircle size={14} />
-                Columnas detectadas ({detectedColumns.length})
+                Columnas reconocidas ({detectedColumns.length})
               </h4>
-              <div className="flex flex-wrap gap-1">
+              <div className="flex flex-wrap gap-1.5">
                 {detectedColumns.map((col, idx) => (
-                  <span key={idx} className="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs">
-                    {col}
-                  </span>
+                  <Badge key={idx} tone="green">
+                    <span className="font-mono">{col}</span>
+                  </Badge>
                 ))}
               </div>
             </div>
@@ -455,67 +466,67 @@ function UploadModal({ isOpen, onClose, currentSheet, sheets, onSuccess }: Uploa
 
           {/* Selector de hoja destino - Solo mostrar cuando hay datos parseados */}
           {parsedData.length > 0 && (
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-              <h4 className="font-medium text-gray-900 mb-3">Destino de los datos</h4>
+            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+              <h4 className="mb-3 text-sm font-semibold text-gray-900">¿Dónde guardar los datos?</h4>
 
-              <div className="flex gap-4 mb-4">
-                <label className="flex items-center gap-2 cursor-pointer">
+              <div className="mb-4 flex flex-wrap gap-4">
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-700">
                   <input
                     type="radio"
                     name="sheetMode"
                     checked={sheetMode === 'new'}
                     onChange={() => setSheetMode('new')}
-                    className="w-4 h-4 text-blue-600"
+                    className="h-4 w-4 accent-[#00d4ff]"
                   />
-                  <span className="text-sm font-medium">Crear nueva jornada</span>
+                  <span className="font-medium">Crear nueva jornada</span>
                 </label>
-                <label className="flex items-center gap-2 cursor-pointer">
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-700">
                   <input
                     type="radio"
                     name="sheetMode"
                     checked={sheetMode === 'existing'}
                     onChange={() => setSheetMode('existing')}
-                    className="w-4 h-4 text-blue-600"
+                    className="h-4 w-4 accent-[#00d4ff]"
                   />
-                  <span className="text-sm font-medium">Agregar a existente</span>
+                  <span className="font-medium">Agregar a una jornada existente</span>
                 </label>
               </div>
 
               {sheetMode === 'new' ? (
                 <div>
-                  <label className="block text-sm text-gray-600 mb-1">
-                    Nombre de la nueva jornada:
+                  <label className="mb-1 block text-xs font-medium text-gray-500">
+                    Nombre de la nueva jornada
                   </label>
                   <input
                     type="text"
                     value={newSheetName}
                     onChange={(e) => setNewSheetName(e.target.value)}
-                    placeholder="Ej: Jornada_Enero_2025"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Ej.: Jornada_Enero_2025"
+                    className={ui.input}
                   />
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="mt-1 text-xs text-gray-500">
                     Se creará una nueva hoja en Google Sheets con este nombre
                   </p>
                 </div>
               ) : (
                 <div>
-                  <label className="block text-sm text-gray-600 mb-1">
-                    Seleccionar jornada existente:
+                  <label className="mb-1 block text-xs font-medium text-gray-500">
+                    Jornada existente
                   </label>
                   <select
                     value={selectedExistingSheet}
                     onChange={(e) => setSelectedExistingSheet(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className={ui.input}
                   >
-                    <option value="">-- Seleccionar --</option>
+                    <option value="">Seleccionar jornada…</option>
                     {sheets.map((sheet) => (
                       <option key={sheet.id} value={sheet.name}>
                         {sheet.name}
                       </option>
                     ))}
                   </select>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Los suministros se agregarán al final de la hoja seleccionada
+                  <p className="mt-1 text-xs text-gray-500">
+                    Los suministros se agregarán al final de la jornada seleccionada
                   </p>
                 </div>
               )}
@@ -524,31 +535,31 @@ function UploadModal({ isOpen, onClose, currentSheet, sheets, onSuccess }: Uploa
 
           {/* Info del formato */}
           {!parsedData.length && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-              <h4 className="font-medium text-blue-800 mb-1 text-sm">Formato del archivo</h4>
-              <p className="text-xs text-blue-700">
-                El archivo debe tener una columna <strong>Suministro</strong> (requerida).
-                Columnas reconocidas: Nº, Tecnico, Fecha de Contraste, Suministro, Codigoderuta,
-                Nombres y Apellidos, Direccion, Distrito, SED, Marca, Modelo, Serie, Fase, Año,
-                Hilos, Consumo Promedio, Equipo patron, Carga, DNI, Longitud, Latitud, GIS.
+            <div className="rounded-xl border border-blue-200 bg-blue-50 p-3">
+              <h4 className="mb-1 text-sm font-medium text-blue-800">Formato del archivo</h4>
+              <p className="text-xs leading-relaxed text-blue-800">
+                El archivo debe tener una columna <strong>Suministro</strong> (obligatoria).
+                Columnas reconocidas: Nº, Técnico, Fecha de contraste, Suministro, Código de ruta,
+                Nombres y apellidos, Dirección, Distrito, SED, Marca, Modelo, Serie, Fase, Año,
+                Hilos, Consumo promedio, Equipo patrón, Carga, DNI, Longitud, Latitud, GIS.
               </p>
             </div>
           )}
 
           {/* Error */}
           {error && (
-            <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700">
-              <AlertCircle size={18} />
+            <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-red-800">
+              <AlertCircle size={18} className="shrink-0" />
               <span className="text-sm">{error}</span>
             </div>
           )}
 
           {/* Success */}
           {success && uploadResult && (
-            <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700">
-              <CheckCircle size={18} />
+            <div className="flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 p-3 text-green-800">
+              <CheckCircle size={18} className="shrink-0" />
               <span className="text-sm">
-                ¡{uploadResult.rowsAdded} suministros subidos correctamente a "{uploadResult.sheetName}"!
+                Se subieron <span className="font-mono font-semibold">{uploadResult.rowsAdded.toLocaleString('es-PE')}</span> suministros a la jornada «{uploadResult.sheetName}».
               </span>
             </div>
           )}
@@ -556,37 +567,37 @@ function UploadModal({ isOpen, onClose, currentSheet, sheets, onSuccess }: Uploa
           {/* Preview de datos */}
           {parsedData.length > 0 && (
             <div>
-              <h4 className="font-medium text-gray-900 mb-2">
-                Vista previa ({parsedData.length} suministros)
+              <h4 className="mb-2 text-sm font-semibold text-gray-900">
+                Vista previa <span className="font-normal text-gray-500">({parsedData.length.toLocaleString('es-PE')} suministros)</span>
               </h4>
-              <div className="border rounded-lg overflow-hidden max-h-64 overflow-y-auto">
+              <div className="max-h-64 overflow-auto rounded-xl border border-gray-200">
                 <table className="w-full text-sm">
-                  <thead className="bg-gray-50 sticky top-0">
-                    <tr>
-                      <th className="text-left py-2 px-3 font-medium text-gray-600">#</th>
-                      <th className="text-left py-2 px-3 font-medium text-gray-600">Suministro</th>
-                      <th className="text-left py-2 px-3 font-medium text-gray-600">Serie</th>
-                      <th className="text-left py-2 px-3 font-medium text-gray-600">Cliente</th>
-                      <th className="text-left py-2 px-3 font-medium text-gray-600">Distrito</th>
-                      <th className="text-left py-2 px-3 font-medium text-gray-600">Tecnico</th>
+                  <thead className="sticky top-0 bg-gray-50">
+                    <tr className="border-b border-gray-200">
+                      <th className={`${ui.th} py-2`}>#</th>
+                      <th className={`${ui.th} py-2`}>Suministro</th>
+                      <th className={`${ui.th} py-2`}>Serie</th>
+                      <th className={`${ui.th} py-2`}>Cliente</th>
+                      <th className={`${ui.th} py-2`}>Distrito</th>
+                      <th className={`${ui.th} py-2`}>Técnico</th>
                     </tr>
                   </thead>
                   <tbody>
                     {parsedData.slice(0, 50).map((row, idx) => (
-                      <tr key={idx} className="border-t hover:bg-gray-50">
-                        <td className="py-2 px-3 text-gray-500">{idx + 1}</td>
-                        <td className="py-2 px-3 font-medium">{row.suministro}</td>
-                        <td className="py-2 px-3 text-gray-600">{row.serie || '-'}</td>
-                        <td className="py-2 px-3 text-gray-600 max-w-[150px] truncate">{row.cliente || '-'}</td>
-                        <td className="py-2 px-3 text-gray-600">{row.distrito || '-'}</td>
-                        <td className="py-2 px-3 text-gray-600">{row.tecnico || '-'}</td>
+                      <tr key={idx} className={ui.tbodyRow}>
+                        <td className={`${ui.td} py-2 font-mono text-gray-500`}>{idx + 1}</td>
+                        <td className={`${ui.td} py-2 font-mono font-medium text-gray-900`}>{row.suministro}</td>
+                        <td className={`${ui.td} py-2 font-mono`}>{row.serie || '—'}</td>
+                        <td className={`${ui.td} max-w-[150px] truncate py-2`}>{row.clienteNombre || '—'}</td>
+                        <td className={`${ui.td} py-2`}>{row.distrito || '—'}</td>
+                        <td className={`${ui.td} py-2`}>{row.tecnico || '—'}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
                 {parsedData.length > 50 && (
-                  <div className="text-center py-2 text-sm text-gray-500 bg-gray-50">
-                    ... y {parsedData.length - 50} filas más
+                  <div className="border-t border-gray-200 bg-gray-50 py-2 text-center text-sm text-gray-500">
+                    … y {(parsedData.length - 50).toLocaleString('es-PE')} filas más
                   </div>
                 )}
               </div>
@@ -595,20 +606,20 @@ function UploadModal({ isOpen, onClose, currentSheet, sheets, onSuccess }: Uploa
 
         </div>
 
-        <div className="flex justify-end gap-2 p-4 border-t bg-gray-50">
+        <div className="flex flex-wrap justify-end gap-2 border-t border-gray-200 bg-gray-50 px-5 py-4">
           <button
             onClick={handleClose}
-            className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg"
+            className={ui.btnSecondary}
           >
             Cancelar
           </button>
           <button
             onClick={handleUpload}
             disabled={parsedData.length === 0 || uploading || success || (sheetMode === 'new' && !newSheetName.trim()) || (sheetMode === 'existing' && !selectedExistingSheet)}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+            className={ui.btnPrimary}
           >
-            {uploading && <RefreshCw size={16} className="animate-spin" />}
-            {success ? '¡Subido!' : uploading ? 'Subiendo...' : `Subir ${parsedData.length} Suministros`}
+            {uploading ? <RefreshCw size={16} className="animate-spin" /> : <Upload size={16} />}
+            {success ? '¡Subido!' : uploading ? 'Subiendo…' : `Subir ${parsedData.length.toLocaleString('es-PE')} suministros`}
           </button>
         </div>
       </div>
@@ -619,7 +630,7 @@ function UploadModal({ isOpen, onClose, currentSheet, sheets, onSuccess }: Uploa
 export default function SuministrosPage() {
   const {
     filteredPoints, pointsExtended, selectedSheet, sheets, isLoading,
-    setFilter: setStoreFilter, resetFilters, setSelectedSheet, refreshPoints
+    setFilter: setStoreFilter, resetFilters: resetStoreFilters, setSelectedSheet, refreshPoints, loadSheets
   } = usePointsStore();
   const sheetStructure = useSheetStructure();
   const tecnicos = useTecnicos();
@@ -642,6 +653,20 @@ export default function SuministrosPage() {
   // Estado de ordenamiento
   const [sortField, setSortField] = useState<SortField>('suministro');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+
+  // Volver a la pagina 1 cuando cambia la jornada (tambien si se cambia desde el Header)
+  // (patron recomendado por React: ajustar estado durante el render al cambiar una prop)
+  const openFicha = useSuministroDrawer((st) => st.open);
+  const [pageSheet, setPageSheet] = useState(selectedSheet);
+  if (pageSheet !== selectedSheet) {
+    setPageSheet(selectedSheet);
+    setCurrentPage(1);
+  }
+
+  const resetFilters = () => {
+    setCurrentPage(1);
+    resetStoreFilters();
+  };
 
   // Ordenar puntos
   const sortedPoints = useMemo(() => {
@@ -712,8 +737,8 @@ export default function SuministrosPage() {
       return <ArrowUpDown size={14} className="text-gray-400" />;
     }
     return sortDirection === 'asc'
-      ? <ArrowUp size={14} className="text-blue-600" />
-      : <ArrowDown size={14} className="text-blue-600" />;
+      ? <ArrowUp size={14} className="text-electric" />
+      : <ArrowDown size={14} className="text-electric" />;
   };
 
   // Cambiar hoja
@@ -728,14 +753,8 @@ export default function SuministrosPage() {
     const isExtended = sheetStructure === 'extended';
 
     // Función para escapar valores CSV (manejar comas y comillas)
-    const escapeCSV = (value: string | number | null | undefined): string => {
-      if (value === null || value === undefined) return '';
-      const str = String(value);
-      if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-        return `"${str.replace(/"/g, '""')}"`;
-      }
-      return str;
-    };
+    // Escapado, BOM y neutralizacion de formulas: lo hace el helper compartido (utils/csv)
+    const escapeCSV = (value: string | number | null | undefined): CsvValue => value;
 
     // Headers completos para estructura extended
     const extendedHeaders = [
@@ -788,7 +807,7 @@ export default function SuministrosPage() {
           escapeCSV(p.longReal),
           escapeCSV(ext.lectura),
           escapeCSV(ext.fechaSupervision || ext.syncedAt)
-        ].join(',');
+        ];
       }
 
       return [
@@ -799,105 +818,104 @@ export default function SuministrosPage() {
         escapeCSV(p.longRef),
         escapeCSV(p.latReal),
         escapeCSV(p.longReal)
-      ].join(',');
+      ];
     });
 
-    // Agregar BOM para UTF-8 (para que Excel reconozca acentos)
-    const BOM = '\uFEFF';
-    const csv = BOM + [headers.join(','), ...rows].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `suministros_${selectedSheet}_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
+    downloadCsv(`suministros_${selectedSheet}_${new Date().toISOString().split('T')[0]}.csv`, headers, rows);
   };
+
+  // Resumen por estado (solo visual, sobre todos los suministros de la jornada)
+  const statusSummary = useMemo(() => {
+    const counts = { pendiente: 0, en_proceso: 0, completado: 0 };
+    pointsExtended.forEach((p) => {
+      const s = getPointStatus(p);
+      if (s in counts) counts[s as keyof typeof counts]++;
+    });
+    return counts;
+  }, [pointsExtended]);
+
+  const fmt = (n: number) => n.toLocaleString('es-PE');
+  const hasActiveFilters = Boolean(filters.search || filters.status !== 'todos' || filters.tecnico !== 'Todos' || filters.distrito !== 'Todos');
+
+  // Cabecera de columna ordenable (solo presentación)
+  const sortTh = (field: SortField, label: string) => (
+    <th
+      className={`${ui.th} cursor-pointer select-none whitespace-nowrap transition-colors hover:text-electric`}
+      onClick={() => handleSort(field)}
+      aria-sort={sortField === field ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        <SortIcon field={field} />
+      </span>
+    </th>
+  );
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="flex h-64 flex-col items-center justify-center gap-3">
+        <div className="h-12 w-12 animate-spin rounded-full border-2 border-gray-200 border-t-electric"></div>
+        <p className="text-sm text-gray-500">Cargando suministros…</p>
       </div>
     );
   }
 
+  const pagerBtn = 'inline-flex items-center justify-center rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm text-gray-700 transition hover:border-electric hover:text-electric disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-gray-300 disabled:hover:text-gray-700';
+
   return (
     <div className="space-y-6">
-      {/* Header con selector de hoja */}
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Suministros</h1>
-          <div className="flex items-center gap-2 mt-1">
-            {/* Selector de Hoja */}
-            <div className="relative">
+      {/* Cabecera */}
+      <PageHeader
+        kicker="Gestión de campo"
+        title="Suministros"
+        icon={<Zap size={22} />}
+        subtitle={
+          <>
+            Jornada: <span className="font-medium text-gray-900">{selectedSheet || 'sin seleccionar'}</span>
+            <span className="mx-2 text-gray-400">·</span>
+            <span className="font-mono">{fmt(pointsExtended.length)}</span> suministros
+          </>
+        }
+        actions={
+          <>
+            <button
+              onClick={refreshPoints}
+              className={ui.btnSecondary}
+              title="Actualizar datos"
+              aria-label="Actualizar datos"
+            >
+              <RefreshCw size={16} />
+              <span className="hidden sm:inline">Actualizar</span>
+            </button>
+            {canUpload && (
               <button
-                onClick={() => setShowSheetSelector(!showSheetSelector)}
-                className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 text-sm"
+                onClick={() => setShowUploadModal(true)}
+                className={ui.btnPrimary}
               >
-                <FileSpreadsheet size={16} className="text-blue-600" />
-                <span className="font-medium">{selectedSheet || 'Seleccionar hoja'}</span>
-                <ChevronDown size={16} className={`text-gray-500 transition-transform ${showSheetSelector ? 'rotate-180' : ''}`} />
+                <Upload size={16} />
+                Subir Excel
               </button>
+            )}
+            {canExport && (
+              <button
+                onClick={exportToCSV}
+                className={ui.btnSuccess}
+                title="Descargar los suministros filtrados en CSV"
+              >
+                <Download size={16} />
+                Exportar CSV
+              </button>
+            )}
+          </>
+        }
+      />
 
-              {showSheetSelector && (
-                <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-20 max-h-64 overflow-y-auto">
-                  {sheets.map((sheet) => (
-                    <button
-                      key={sheet.id}
-                      onClick={() => handleSheetChange(sheet.name)}
-                      className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 flex items-center justify-between ${
-                        selectedSheet === sheet.name ? 'bg-blue-50 text-blue-700' : 'text-gray-700'
-                      }`}
-                    >
-                      <span>{sheet.name}</span>
-                      {selectedSheet === sheet.name && (
-                        <CheckCircle size={14} className="text-blue-600" />
-                      )}
-                    </button>
-                  ))}
-                  {sheets.length === 0 && (
-                    <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                      No hay hojas disponibles
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <span className="text-gray-400">|</span>
-            <span className="text-gray-500 text-sm">
-              {pointsExtended.length} suministros
-            </span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={refreshPoints}
-            className="flex items-center gap-2 px-3 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
-            title="Actualizar datos"
-          >
-            <RefreshCw size={18} />
-          </button>
-          {canUpload && (
-            <button
-              onClick={() => setShowUploadModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <Upload size={18} />
-              Subir Excel
-            </button>
-          )}
-          {canExport && (
-            <button
-              onClick={exportToCSV}
-              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-            >
-              <Download size={18} />
-              Exportar
-            </button>
-          )}
-        </div>
+      {/* Resumen */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatCard label="Total de la jornada" value={fmt(pointsExtended.length)} tone="cyan" icon={<Zap size={18} />} />
+        <StatCard label={STATUS_UI.pendiente.label} value={fmt(statusSummary.pendiente)} tone={STATUS_UI.pendiente.tone} />
+        <StatCard label={STATUS_UI.en_proceso.label} value={fmt(statusSummary.en_proceso)} tone={STATUS_UI.en_proceso.tone} />
+        <StatCard label={STATUS_UI.completado.label} value={fmt(statusSummary.completado)} tone={STATUS_UI.completado.tone} />
       </div>
 
       {/* Click outside handler para cerrar selector */}
@@ -909,71 +927,126 @@ export default function SuministrosPage() {
       )}
 
       {/* Filtros */}
-      <div className="bg-white rounded-xl border border-gray-200 p-4">
-        <div className="flex flex-wrap items-center gap-4">
-          {/* Busqueda */}
-          <div className="flex-1 min-w-[200px]">
+      <SectionCard
+        title="Filtros"
+        icon={<Filter size={16} />}
+        actions={
+          hasActiveFilters ? (
+            <button
+              onClick={resetFilters}
+              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-gray-500 transition hover:bg-gray-100 hover:text-electric"
+            >
+              <RotateCcw size={14} />
+              Limpiar filtros
+            </button>
+          ) : undefined
+        }
+        bodyClassName="p-4"
+      >
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-12">
+          {/* Selector de jornada */}
+          <div className="relative lg:col-span-3">
+            <label className="mb-1 block text-xs font-medium text-gray-500">Jornada</label>
+            <button
+              onClick={() => setShowSheetSelector(!showSheetSelector)}
+              className={`${ui.input} relative z-20 flex items-center gap-2 text-left`}
+            >
+              <FileSpreadsheet size={16} className="shrink-0 text-electric" />
+              <span className="flex-1 truncate font-medium">{selectedSheet || 'Seleccionar jornada'}</span>
+              <ChevronDown size={16} className={`shrink-0 text-gray-500 transition-transform ${showSheetSelector ? 'rotate-180' : ''}`} />
+            </button>
+
+            {showSheetSelector && (
+              <div className="absolute left-0 top-full z-20 mt-1 max-h-64 w-full min-w-[16rem] overflow-y-auto rounded-xl border border-gray-200 bg-white py-1 shadow-2xl">
+                {sheets.map((sheet) => (
+                  <button
+                    key={sheet.id}
+                    onClick={() => handleSheetChange(sheet.name)}
+                    className={`flex w-full items-center justify-between px-4 py-2 text-left text-sm transition-colors hover:bg-gray-100 ${
+                      selectedSheet === sheet.name ? 'bg-blue-50 text-electric' : 'text-gray-700'
+                    }`}
+                  >
+                    <span className="truncate">{sheet.name}</span>
+                    {selectedSheet === sheet.name && (
+                      <CheckCircle size={14} className="shrink-0 text-electric" />
+                    )}
+                  </button>
+                ))}
+                {sheets.length === 0 && (
+                  <div className="px-4 py-3 text-center text-sm text-gray-500">
+                    No hay jornadas disponibles
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Búsqueda */}
+          <div className="sm:col-span-2 lg:col-span-3">
+            <label className="mb-1 block text-xs font-medium text-gray-500">Buscar</label>
             <div className="relative">
               <Search
-                className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"
-                size={18}
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                size={16}
               />
               <input
                 type="text"
                 value={filters.search}
                 onChange={(e) => handleFilterChange('search', e.target.value)}
-                placeholder="Buscar suministro, cliente, direccion..."
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                placeholder="Suministro, cliente, dirección…"
+                className={`${ui.input} pl-9`}
               />
             </div>
           </div>
 
           {/* Filtro de estado */}
-          <div className="flex items-center gap-2">
-            <Filter size={18} className="text-gray-500" />
+          <div className="lg:col-span-2">
+            <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-gray-500">
+              <Filter size={12} /> Estado
+            </label>
             <select
               value={filters.status}
               onChange={(e) => handleFilterChange('status', e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2"
+              className={ui.input}
             >
               <option value="todos">Todos los estados</option>
-              <option value="pendiente">Pendientes</option>
-              <option value="en_proceso">En Proceso</option>
-              <option value="completado">Completados</option>
+              <option value="pendiente">Pendiente</option>
+              <option value="en_proceso">En proceso</option>
+              <option value="completado">Completado</option>
             </select>
           </div>
 
           {/* Filtros extended */}
           {sheetStructure === 'extended' && tecnicos.length > 0 && (
-            <div className="flex items-center gap-2">
-              <Users size={18} className="text-gray-500" />
+            <div className="lg:col-span-2">
+              <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-gray-500">
+                <Users size={12} /> Técnico
+                {isTecnico && <Badge tone="cyan">Asignado</Badge>}
+              </label>
               <select
                 value={filters.tecnico}
                 onChange={(e) => handleFilterChange('tecnico', e.target.value)}
                 disabled={isTecnico}
-                className={`border border-gray-300 rounded-lg px-3 py-2 ${
-                  isTecnico ? 'bg-gray-100 cursor-not-allowed' : ''
-                }`}
+                className={`${ui.input} ${isTecnico ? 'cursor-not-allowed opacity-60' : ''}`}
                 title={isTecnico ? 'Filtrado por tu usuario' : ''}
               >
-                <option value="Todos">Todos los tecnicos</option>
+                <option value="Todos">Todos los técnicos</option>
                 {tecnicos.map((t) => (
                   <option key={t} value={t}>{t}</option>
                 ))}
               </select>
-              {isTecnico && (
-                <span className="text-xs text-blue-600">(Asignado)</span>
-              )}
             </div>
           )}
 
           {sheetStructure === 'extended' && distritos.length > 0 && (
-            <div className="flex items-center gap-2">
-              <Building2 size={18} className="text-gray-500" />
+            <div className="lg:col-span-2">
+              <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-gray-500">
+                <Building2 size={12} /> Distrito
+              </label>
               <select
                 value={filters.distrito}
                 onChange={(e) => handleFilterChange('distrito', e.target.value)}
-                className="border border-gray-300 rounded-lg px-3 py-2"
+                className={ui.input}
               >
                 <option value="Todos">Todos los distritos</option>
                 {distritos.map((d) => (
@@ -982,94 +1055,42 @@ export default function SuministrosPage() {
               </select>
             </div>
           )}
-
-          {/* Boton limpiar filtros */}
-          {(filters.search || filters.status !== 'todos' || filters.tecnico !== 'Todos' || filters.distrito !== 'Todos') && (
-            <button
-              onClick={resetFilters}
-              className="flex items-center gap-1 px-3 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              <RotateCcw size={16} />
-              Limpiar
-            </button>
-          )}
         </div>
 
-        <div className="mt-3 text-sm text-gray-500">
-          Mostrando {filteredPoints.length} de {pointsExtended.length} suministros
+        <div className="mt-3 text-xs text-gray-500">
+          Mostrando <span className="font-mono text-gray-700">{fmt(filteredPoints.length)}</span> de{' '}
+          <span className="font-mono text-gray-700">{fmt(pointsExtended.length)}</span> suministros
         </div>
-      </div>
+      </SectionCard>
 
       {/* Tabla */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto">
+      <div className={ui.tableWrap}>
+        <div className="max-h-[70vh] overflow-auto">
           <table className="w-full">
-            <thead className="bg-gray-50">
-              <tr>
-                <th
-                  className="text-left py-3 px-4 text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
-                  onClick={() => handleSort('suministro')}
-                >
-                  <span className="flex items-center gap-1">
-                    Suministro
-                    <SortIcon field="suministro" />
-                  </span>
-                </th>
+            <thead className="sticky top-0 z-[1] bg-gray-50">
+              <tr className={ui.theadRow}>
+                {sortTh('suministro', 'Suministro')}
                 {sheetStructure === 'extended' && (
                   <>
-                    <th
-                      className="text-left py-3 px-4 text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
-                      onClick={() => handleSort('tecnico')}
-                    >
-                      <span className="flex items-center gap-1">
-                        Tecnico
-                        <SortIcon field="tecnico" />
-                      </span>
-                    </th>
-                    <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">
-                      Cliente
-                    </th>
-                    <th
-                      className="text-left py-3 px-4 text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
-                      onClick={() => handleSort('distrito')}
-                    >
-                      <span className="flex items-center gap-1">
-                        Distrito
-                        <SortIcon field="distrito" />
-                      </span>
-                    </th>
+                    {sortTh('tecnico', 'Técnico')}
+                    <th className={`${ui.th} whitespace-nowrap`}>Cliente</th>
+                    {sortTh('distrito', 'Distrito')}
                   </>
                 )}
-                <th
-                  className="text-left py-3 px-4 text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
-                  onClick={() => handleSort('status')}
-                >
-                  <span className="flex items-center gap-1">
-                    Estado
-                    <SortIcon field="status" />
-                  </span>
+                {sortTh('status', 'Estado')}
+                {sortTh('photoCount', 'Fotos')}
+                <th className={`${ui.th} whitespace-nowrap`} title="Coordenadas de referencia (programadas)">
+                  Coordenadas de referencia
                 </th>
-                <th
-                  className="text-left py-3 px-4 text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
-                  onClick={() => handleSort('photoCount')}
-                >
-                  <span className="flex items-center gap-1">
-                    Fotos
-                    <SortIcon field="photoCount" />
-                  </span>
-                </th>
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">
-                  Coordenadas Ref.
-                </th>
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">
-                  Coordenadas Real
+                <th className={`${ui.th} whitespace-nowrap`} title="Coordenadas registradas en campo">
+                  Coordenadas en campo
                 </th>
                 {sheetStructure === 'extended' && (
-                  <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">
+                  <th className={`${ui.th} whitespace-nowrap`}>
                     Lectura
                   </th>
                 )}
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">
+                <th className={`${ui.th} whitespace-nowrap`}>
                   Acciones
                 </th>
               </tr>
@@ -1078,71 +1099,67 @@ export default function SuministrosPage() {
               {paginatedPoints.map((point, index) => {
                 const status = getPointStatus(point);
                 const extPoint = point as GpsPointExtended;
+                const statusUi = STATUS_UI[status];
 
                 return (
                   <tr
                     key={`${point.suministro}-${index}`}
-                    className="border-b border-gray-100 hover:bg-gray-50"
+                    className={ui.tbodyRow}
                   >
-                    <td className="py-3 px-4">
-                      <span className="font-medium text-gray-900">
+                    <td className={`${ui.td} whitespace-nowrap`}>
+                      <button
+                        onClick={() => openFicha(point, selectedSheet)}
+                        className="font-mono font-medium text-electric hover:underline"
+                        title="Ver ficha e historial del suministro"
+                      >
                         {point.suministro}
-                      </span>
+                      </button>
                     </td>
                     {sheetStructure === 'extended' && (
                       <>
-                        <td className="py-3 px-4 text-gray-600">
-                          {extPoint.tecnico || '-'}
+                        <td className={`${ui.td} whitespace-nowrap`}>
+                          {extPoint.tecnico || '—'}
                         </td>
-                        <td className="py-3 px-4 text-gray-600 max-w-[150px] truncate" title={extPoint.clienteNombre || ''}>
-                          {extPoint.clienteNombre || '-'}
+                        <td className={`${ui.td} max-w-[180px] truncate`} title={extPoint.clienteNombre || ''}>
+                          {extPoint.clienteNombre || '—'}
                         </td>
-                        <td className="py-3 px-4 text-gray-600">
-                          {extPoint.distrito || '-'}
+                        <td className={`${ui.td} whitespace-nowrap`}>
+                          {extPoint.distrito || '—'}
                         </td>
                       </>
                     )}
-                    <td className="py-3 px-4">
-                      <span
-                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          status === 'completado'
-                            ? 'bg-green-100 text-green-800'
-                            : status === 'en_proceso'
-                            ? 'bg-yellow-100 text-yellow-800'
-                            : 'bg-red-100 text-red-800'
-                        }`}
-                      >
-                        {getStatusLabel(status)}
-                      </span>
+                    <td className={`${ui.td} whitespace-nowrap`}>
+                      <Badge tone={statusUi?.tone ?? 'gray'} dot>
+                        {statusUi?.label ?? getStatusLabel(status)}
+                      </Badge>
                     </td>
-                    <td className="py-3 px-4">
-                      <span className="flex items-center gap-1 text-gray-600">
+                    <td className={ui.td}>
+                      <span className={`inline-flex items-center gap-1.5 font-mono ${point.photoCount > 0 ? 'text-gray-900' : 'text-gray-400'}`}>
                         <Camera size={14} />
                         {point.photoCount}
                       </span>
                     </td>
-                    <td className="py-3 px-4 text-sm text-gray-600 font-mono">
-                      {point.latRef && point.longRef
-                        ? `${point.latRef.toFixed(6)}, ${point.longRef.toFixed(6)}`
-                        : '-'}
+                    <td className={`${ui.td} whitespace-nowrap font-mono text-xs`}>
+                      {formatCoords(point.latRef, point.longRef) ?? '—'}
                     </td>
-                    <td className="py-3 px-4 text-sm text-gray-600 font-mono">
-                      {point.latReal && point.longReal
-                        ? `${point.latReal.toFixed(6)}, ${point.longReal.toFixed(6)}`
-                        : '-'}
+                    <td className={`${ui.td} whitespace-nowrap font-mono text-xs`}>
+                      {formatCoords(point.latReal, point.longReal) ?? '—'}
                     </td>
                     {sheetStructure === 'extended' && (
-                      <td className="py-3 px-4 text-gray-600 font-mono">
-                        {extPoint.lectura || '-'}
+                      <td className={`${ui.td} whitespace-nowrap font-mono`}>
+                        {extPoint.lectura !== null && extPoint.lectura !== undefined && extPoint.lectura !== ''
+                          ? <span className="text-energy">{extPoint.lectura}</span>
+                          : <span className="text-gray-400">—</span>}
                       </td>
                     )}
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-2">
+                    <td className={ui.td}>
+                      <div className="flex items-center gap-1">
                         {point.photoCount > 0 && (
                           <button
                             onClick={() => setSelectedPoint(point)}
-                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                            className="rounded-lg p-2 text-electric transition-colors hover:bg-gray-100"
                             title="Ver fotos"
+                            aria-label="Ver fotos"
                           >
                             <Camera size={16} />
                           </button>
@@ -1152,8 +1169,9 @@ export default function SuministrosPage() {
                             href={`https://www.google.com/maps?q=${point.latReal || point.latRef},${point.longReal || point.longRef}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                            className="rounded-lg p-2 text-green-700 transition-colors hover:bg-gray-100"
                             title="Ver en Google Maps"
+                            aria-label="Ver en Google Maps"
                           >
                             <MapPin size={16} />
                           </a>
@@ -1168,64 +1186,80 @@ export default function SuministrosPage() {
         </div>
 
         {paginatedPoints.length === 0 && (
-          <div className="text-center py-12 text-gray-500">
-            No se encontraron suministros
-          </div>
+          <EmptyState
+            icon="medidor"
+            title="No se encontraron suministros"
+            description={hasActiveFilters
+              ? 'Ningún suministro coincide con los filtros aplicados.'
+              : 'Esta jornada todavía no tiene suministros cargados.'}
+            action={hasActiveFilters ? (
+              <button onClick={resetFilters} className={ui.btnSecondary}>
+                <RotateCcw size={16} />
+                Limpiar filtros
+              </button>
+            ) : undefined}
+          />
         )}
 
         {/* Controles de paginación */}
         {sortedPoints.length > 0 && (
-          <div className="px-4 py-3 border-t border-gray-200 flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <span className="text-sm text-gray-600">
-                Mostrando {startIndex + 1}-{Math.min(endIndex, sortedPoints.length)} de {sortedPoints.length}
+          <div className="flex flex-wrap items-center justify-between gap-4 border-t border-gray-200 bg-gray-50 px-4 py-3">
+            <div className="flex flex-wrap items-center gap-4">
+              <span className="text-sm text-gray-500">
+                Filas <span className="font-mono text-gray-900">{fmt(startIndex + 1)}–{fmt(Math.min(endIndex, sortedPoints.length))}</span> de{' '}
+                <span className="font-mono text-gray-900">{fmt(sortedPoints.length)}</span>
               </span>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-500">Filas:</span>
+              <label className="flex items-center gap-2 text-sm text-gray-500">
+                Filas por página
                 <select
                   value={pageSize}
                   onChange={(e) => {
                     setPageSize(Number(e.target.value));
                     setCurrentPage(1);
                   }}
-                  className="border border-gray-300 rounded px-2 py-1 text-sm"
+                  className={`${ui.input} w-auto py-1`}
                 >
                   {PAGE_SIZES.map((size) => (
                     <option key={size} value={size}>{size}</option>
                   ))}
                 </select>
-              </div>
+              </label>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <button
                 onClick={() => setCurrentPage(1)}
                 disabled={currentPage === 1}
-                className="px-2 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className={pagerBtn}
               >
                 Primera
               </button>
               <button
                 onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
                 disabled={currentPage === 1}
-                className="p-1 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className={pagerBtn}
+                title="Página anterior"
+                aria-label="Página anterior"
               >
-                <ChevronLeft size={18} />
+                <ChevronLeft size={16} />
               </button>
-              <span className="px-3 py-1 text-sm">
-                Página {currentPage} de {totalPages || 1}
+              <span className="px-2 text-sm text-gray-500">
+                Página <span className="font-mono text-gray-900">{currentPage}</span> de{' '}
+                <span className="font-mono text-gray-900">{totalPages || 1}</span>
               </span>
               <button
                 onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
                 disabled={currentPage >= totalPages}
-                className="p-1 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className={pagerBtn}
+                title="Página siguiente"
+                aria-label="Página siguiente"
               >
-                <ChevronRight size={18} />
+                <ChevronRight size={16} />
               </button>
               <button
                 onClick={() => setCurrentPage(totalPages)}
                 disabled={currentPage >= totalPages}
-                className="px-2 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className={pagerBtn}
               >
                 Última
               </button>
@@ -1250,7 +1284,11 @@ export default function SuministrosPage() {
         onClose={() => setShowUploadModal(false)}
         currentSheet={selectedSheet || ''}
         sheets={sheets}
-        onSuccess={refreshPoints}
+        onSuccess={async () => {
+          // Recargar la lista de jornadas (por si se creo una nueva) y los puntos
+          await loadSheets();
+          await refreshPoints();
+        }}
       />
     </div>
   );

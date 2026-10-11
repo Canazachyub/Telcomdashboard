@@ -1,33 +1,318 @@
 @import "tailwindcss";
 
-/* Estilos base personalizados */
-body {
-  background-color: #f3f4f6;
-  color: #111827;
+/* ==========================================================================
+   Tema TELCOM — "centro de operaciones"
+   Misma identidad que la web corporativa (navy + azul + cian eléctrico + ámbar).
+   Se redefine la escala de colores de Tailwind para que las clases existentes
+   (bg-white, text-gray-900, bg-blue-50, ...) se vean en el tema oscuro sin
+   reescribir la lógica de cada página.
+   ========================================================================== */
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --font-display: "Orbitron", "Plus Jakarta Sans", sans-serif;
+
+  /* Marca */
+  --color-navy-950: #050c19;
+  --color-navy-900: #0a1628;
+  --color-navy-850: #0d1b31;
+  --color-navy-800: #0f1e36;
+  --color-navy-700: #16294a;
+  --color-electric: #00d4ff;
+  --color-energy: #fbbf24;
+  --color-line: #1f3454;
+  --color-line-strong: #2a4268;
+
+  /* Grises → superficies y textos del tema oscuro */
+  --color-gray-50: #12223b;   /* secciones dentro de tarjetas, cabeceras de tabla */
+  --color-gray-100: #172a47;  /* hover / chips */
+  --color-gray-200: #1f3454;  /* bordes suaves */
+  --color-gray-300: #2a4268;  /* bordes de inputs */
+  --color-gray-400: #6b7fa3;  /* texto tenue / iconos */
+  --color-gray-500: #8a9cbb;  /* texto secundario */
+  --color-gray-600: #a6b4cc;
+  --color-gray-700: #c5d0e2;
+  --color-gray-800: #dde5f1;
+  --color-gray-900: #eef3fa;  /* texto principal */
+
+  /* Tintes claros (50/100/200) → velos translúcidos; tonos oscuros (700-900) → legibles sobre fondo oscuro */
+  --color-blue-50: rgb(37 99 235 / 0.12);
+  --color-blue-100: rgb(37 99 235 / 0.2);
+  --color-blue-200: rgb(59 130 246 / 0.35);
+  --color-blue-700: #3b7bf0;
+  --color-blue-800: #93c5fd;
+  --color-blue-900: #bfdbfe;
+
+  --color-green-50: rgb(16 185 129 / 0.1);
+  --color-green-100: rgb(16 185 129 / 0.18);
+  --color-green-200: rgb(16 185 129 / 0.32);
+  --color-green-700: #22c55e;
+  --color-green-800: #6ee7b7;
+  --color-green-900: #a7f3d0;
+
+  --color-red-50: rgb(239 68 68 / 0.1);
+  --color-red-100: rgb(239 68 68 / 0.18);
+  --color-red-200: rgb(239 68 68 / 0.32);
+  --color-red-700: #f05252;
+  --color-red-800: #fca5a5;
+  --color-red-900: #fecaca;
+
+  --color-yellow-50: rgb(234 179 8 / 0.1);
+  --color-yellow-100: rgb(234 179 8 / 0.18);
+  --color-yellow-200: rgb(234 179 8 / 0.32);
+  --color-yellow-700: #facc15;
+  --color-yellow-800: #fde68a;
+
+  --color-amber-50: rgb(245 158 11 / 0.1);
+  --color-amber-100: rgb(245 158 11 / 0.18);
+  --color-amber-200: rgb(245 158 11 / 0.32);
+  --color-amber-700: #f59e0b;
+  --color-amber-800: #fcd34d;
+
+  --color-orange-50: rgb(249 115 22 / 0.1);
+  --color-orange-100: rgb(249 115 22 / 0.18);
+  --color-orange-200: rgb(249 115 22 / 0.32);
+  --color-orange-700: #fb923c;
+  --color-orange-800: #fdba74;
+  --color-orange-900: #fed7aa;
+
+  --color-purple-50: rgb(139 92 246 / 0.1);
+  --color-purple-100: rgb(139 92 246 / 0.18);
+  --color-purple-200: rgb(139 92 246 / 0.32);
+  --color-purple-700: #a78bfa;
+  --color-purple-800: #c4b5fd;
+
+  --color-indigo-50: rgb(99 102 241 / 0.1);
+  --color-teal-50: rgb(20 184 166 / 0.1);
+  --color-teal-100: rgb(20 184 166 / 0.18);
 }
 
-/* Estilos para el mapa Leaflet */
+/* Superficie de tarjetas: "bg-white" pasa a ser el panel navy */
+@layer utilities {
+  .bg-white { background-color: var(--color-navy-850); }
+  .hover\:bg-white:hover { background-color: var(--color-navy-800); }
+}
+
+@layer base {
+  html { color-scheme: dark; }
+  body {
+    background-color: var(--color-navy-950);
+    background-image:
+      radial-gradient(1100px 520px at 85% -10%, rgb(0 212 255 / 0.06), transparent 60%),
+      radial-gradient(900px 480px at -10% 110%, rgb(37 99 235 / 0.07), transparent 60%);
+    background-attachment: fixed;
+    color: var(--color-gray-900);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  input, select, textarea { color: var(--color-gray-900); background-color: var(--color-navy-900); }
+  input::placeholder, textarea::placeholder { color: var(--color-gray-400); }
+  select option { background-color: var(--color-navy-900); color: var(--color-gray-900); }
+  table { font-variant-numeric: tabular-nums; }
+}
+
+/* Tarjetas: borde fino + línea de luz superior (toque "HUD" sutil) */
+.rounded-xl.bg-white,
+.rounded-lg.bg-white.shadow,
+.rounded-lg.bg-white.shadow-sm {
+  border: 1px solid var(--color-line);
+  box-shadow: 0 1px 0 rgb(0 212 255 / 0.08) inset, 0 8px 24px rgb(0 0 0 / 0.25);
+}
+
+/* Componentes de marca reutilizables */
+.brand-kicker {
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--color-electric);
+}
+.hud-corners { position: relative; }
+.hud-corners::before,
+.hud-corners::after {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+  z-index: 5;
+  border-color: rgb(0 212 255 / 0.7);
+  border-style: solid;
+}
+.hud-corners::before { top: -1px; left: -1px; border-width: 2px 0 0 2px; border-top-left-radius: 12px; }
+.hud-corners::after { bottom: -1px; right: -1px; border-width: 0 2px 2px 0; border-bottom-right-radius: 12px; }
+
+/* Mapa Leaflet */
 .leaflet-container {
   width: 100%;
   height: 100%;
   z-index: 1;
+  background: #0b1a30;
+  font-family: var(--font-sans);
+}
+/* Leaflet carga su CSS después del nuestro: se fuerza el tema oscuro en popups */
+.leaflet-container .leaflet-popup-content-wrapper,
+.leaflet-container .leaflet-popup-tip {
+  background: var(--color-navy-850) !important;
+  color: var(--color-gray-900) !important;
+  border: 1px solid var(--color-line-strong);
+  box-shadow: 0 16px 40px rgb(0 0 0 / 0.55) !important;
+}
+.leaflet-container .leaflet-popup-content-wrapper { border-radius: 14px !important; }
+.leaflet-container .leaflet-popup-content { margin: 14px 16px !important; color: var(--color-gray-900); }
+.leaflet-container a.leaflet-popup-close-button { color: var(--color-gray-500) !important; top: 6px !important; right: 6px !important; }
+.leaflet-container a.leaflet-popup-close-button:hover { color: var(--color-gray-900) !important; }
+.leaflet-bar a,
+.leaflet-bar a:hover {
+  background: var(--color-navy-850);
+  color: var(--color-gray-900);
+  border-bottom-color: var(--color-line);
+}
+.leaflet-control-attribution {
+  background: rgb(5 12 25 / 0.7) !important;
+  color: var(--color-gray-500) !important;
+}
+.leaflet-control-attribution a { color: var(--color-gray-600) !important; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background-color: var(--color-navy-950); }
+::-webkit-scrollbar-thumb { background-color: var(--color-line-strong); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background-color: var(--color-gray-400); }
+
+/* Mapa base en tono oscuro: mismos tiles de OpenStreetMap, solo con filtro de color.
+   Los marcadores y popups no se ven afectados (están en otros panes). */
+.leaflet-container .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(185deg) brightness(0.92) contrast(0.88) saturate(0.55);
 }
 
-/* Scrollbar personalizada */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+/* Login: acercamiento lento del fondo y energía recorriendo los cables */
+@keyframes kenBurns {
+  from { transform: scale(1.12) translate3d(1.5%, 1%, 0); }
+  to { transform: scale(1.02) translate3d(0, 0, 0); }
+}
+@keyframes energyFlow {
+  from { stroke-dashoffset: 1040; }
+  to { stroke-dashoffset: 0; }
 }
 
-::-webkit-scrollbar-track {
-  background-color: #e5e7eb;
+/* ===== Intro eléctrica del login ===== */
+.intro-scan {
+  background-image:
+    repeating-linear-gradient(0deg, rgb(0 212 255 / 0.05) 0 1px, transparent 1px 4px),
+    linear-gradient(180deg, transparent 0%, rgb(0 212 255 / 0.12) 50%, transparent 100%);
+  background-size: auto, 100% 30%;
+  background-repeat: repeat, no-repeat;
+  animation: introSweep 2.2s linear infinite;
+}
+@keyframes introSweep {
+  from { background-position: 0 0, 0 -40%; }
+  to { background-position: 0 0, 0 140%; }
+}
+/* El logo aparece "encendiéndose" con parpadeos como un tubo fluorescente */
+.intro-logo {
+  animation: introLogoOn 1.1s steps(1, end) forwards, introLogoGlow 2.4s ease-in-out 1.1s infinite;
+}
+@keyframes introLogoOn {
+  0% { opacity: 0; filter: brightness(3) saturate(0); }
+  12% { opacity: 1; }
+  18% { opacity: 0.1; }
+  30% { opacity: 1; filter: brightness(2.2) drop-shadow(0 0 30px #00d4ff); }
+  36% { opacity: 0.3; }
+  48% { opacity: 1; }
+  56% { opacity: 0.6; }
+  70%, 100% { opacity: 1; filter: brightness(1.15) drop-shadow(0 0 26px rgb(0 212 255 / 0.7)); }
+}
+@keyframes introLogoGlow {
+  0%, 100% { filter: brightness(1.1) drop-shadow(0 0 22px rgb(0 212 255 / 0.55)); }
+  50% { filter: brightness(1.25) drop-shadow(0 0 40px rgb(0 212 255 / 0.9)); }
+}
+.intro-ring { stroke-dashoffset: 578; animation: introRing 0.9s ease-out forwards; }
+@keyframes introRing { to { stroke-dashoffset: 0; } }
+.intro-flash { animation: introFlash 0.6s ease-out forwards; }
+@keyframes introFlash { 0% { opacity: 1; } 100% { opacity: 0; } }
+.intro-wordmark { text-shadow: 0 0 18px rgb(0 212 255 / 0.55); animation: introFlicker 1.2s steps(1, end) 1; }
+@keyframes introFlicker {
+  0%, 20%, 40% { opacity: 1; } 10%, 30% { opacity: 0.35; } 100% { opacity: 1; }
+}
+/* Descarga breve del isotipo en el panel */
+.logo-zap { animation: logoZap 0.7s steps(1, end); }
+@keyframes logoZap {
+  0% { filter: brightness(2.4) drop-shadow(0 0 22px #00d4ff); transform: translate(1px, -1px); }
+  15% { filter: brightness(0.7); transform: translate(-1px, 1px); }
+  30% { filter: brightness(2) drop-shadow(0 0 28px #00d4ff); transform: translate(0, 0); }
+  45% { filter: brightness(1); }
+  60% { filter: brightness(1.8) drop-shadow(0 0 20px #00d4ff); }
+  100% { filter: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .intro-scan, .intro-logo, .intro-ring, .intro-flash, .intro-wordmark, .logo-zap { animation: none !important; opacity: 1; }
+}
+@keyframes slideText {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
 }
 
-::-webkit-scrollbar-thumb {
-  background-color: #9ca3af;
-  border-radius: 4px;
+/* Reloj del header (estilo Terran): marco de esquinas cortadas con retícula */
+.terran-clock {
+  background:
+    repeating-linear-gradient(0deg, rgb(0 212 255 / 0.05) 0 1px, transparent 1px 3px),
+    linear-gradient(180deg, rgb(0 212 255 / 0.08), rgb(0 212 255 / 0.02));
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+  box-shadow: inset 0 0 0 1px rgb(0 212 255 / 0.35);
+}
+.terran-clock::before,
+.terran-clock::after {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 1.5px;
+  background: var(--color-electric);
+  box-shadow: 0 0 6px var(--color-electric);
+}
+.terran-clock::before { top: 4px; left: 2px; transform: rotate(-45deg); transform-origin: left; width: 10px; }
+.terran-clock::after { bottom: 4px; right: 2px; transform: rotate(-45deg); transform-origin: right; width: 10px; }
+
+/* Marco de retrato de unidad (avatares) */
+.unit-portrait {
+  position: relative;
+  padding: 2px;
+  background: linear-gradient(145deg, #5b6b82 0%, #1c2638 35%, #0a111e 60%, #3d4a5e 100%);
+  clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.5);
+}
+.unit-portrait img {
+  display: block;
+  clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
+}
+.unit-portrait::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgb(0 0 0 / 0.12) 0 1px, transparent 1px 3px);
+  box-shadow: inset 0 0 8px rgb(0 0 0 / 0.6);
+  clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background-color: #6b7280;
+/* Comparación de corrección de suministro en el mapa */
+.leaflet-container .comparar-tip {
+  background: rgb(10 22 40 / 0.92);
+  border: 1px solid rgb(192 132 252 / 0.5);
+  color: #e9d5ff;
+  font: 600 11px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+  border-radius: 6px;
+  padding: 3px 6px;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.4);
+}
+.leaflet-container .comparar-tip::before { display: none; }
+.leaflet-container .punto-fantasma {
+  filter: blur(1.5px) drop-shadow(0 0 6px #22d3ee);
+  animation: fantasma 1.6s ease-in-out infinite;
+}
+@keyframes fantasma {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.95; }
 }

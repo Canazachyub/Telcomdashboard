@@ -1,39 +1,39 @@
-import { Bell, User, RefreshCw } from 'lucide-react';
+import { RefreshCw, Menu, CalendarRange } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
 import { usePointsStore } from '../../stores/pointsStore';
-import { roleLabels, roleColors } from '../../types/user';
+import { roleLabels } from '../../types/user';
+import TerranClock from './TerranClock';
+import RoleAvatar from '../RoleAvatar';
 
-export default function Header() {
+interface HeaderProps {
+  onMenu: () => void;
+}
+
+export default function Header({ onMenu }: HeaderProps) {
   const { user } = useAuthStore();
   const { sheets, selectedSheet, setSelectedSheet, refreshPoints, isLoading } = usePointsStore();
 
-  const handleRefresh = () => {
-    refreshPoints();
-  };
-
-  const formatDate = () => {
-    const now = new Date();
-    return now.toLocaleDateString('es-PE', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    });
-  };
-
   return (
-    <header className="bg-white shadow-sm border-b border-gray-200 px-6 py-3">
-      <div className="flex items-center justify-between">
-        {/* Lado izquierdo - Selector de jornada */}
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <label className="text-sm text-gray-500">Seleccionar Jornada:</label>
+    <header className="sticky top-0 z-[1000] border-b border-line bg-navy-900/85 px-4 py-3 backdrop-blur-md sm:px-6">
+      <div className="flex items-center gap-3">
+        <button
+          onClick={onMenu}
+          className="rounded-lg p-2 text-gray-500 hover:bg-navy-800 hover:text-white lg:hidden"
+          aria-label="Abrir menú"
+        >
+          <Menu size={20} />
+        </button>
+
+        {/* Selector de jornada */}
+        <div className="flex min-w-0 items-center gap-2 rounded-xl border border-line-strong bg-navy-800 py-1 pl-3 pr-1">
+          <CalendarRange size={16} className="shrink-0 text-electric" />
+          <div className="min-w-0">
+            <p className="hidden text-[10px] font-medium uppercase tracking-wider text-gray-400 sm:block">Jornada</p>
             <select
               value={selectedSheet || ''}
               onChange={(e) => setSelectedSheet(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              className="max-w-[46vw] cursor-pointer truncate bg-transparent pr-1 text-sm font-semibold text-gray-900 outline-none sm:max-w-[260px]"
+              aria-label="Seleccionar jornada"
             >
               <option value="">Seleccionar...</option>
               {sheets.map((sheet) => (
@@ -43,47 +43,36 @@ export default function Header() {
               ))}
             </select>
           </div>
-
           <button
-            onClick={handleRefresh}
+            onClick={() => refreshPoints()}
             disabled={isLoading}
-            className={`p-2 rounded-lg transition-colors ${
-              isLoading
-                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
+            className="rounded-lg p-2 text-gray-500 transition-colors hover:bg-navy-700 hover:text-electric disabled:cursor-not-allowed disabled:opacity-50"
             title="Actualizar datos"
+            aria-label="Actualizar datos"
           >
-            <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
+            <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} />
           </button>
         </div>
 
-        {/* Lado derecho - Fecha, notificaciones y usuario */}
-        <div className="flex items-center gap-6">
-          {/* Fecha y hora */}
-          <span className="text-sm text-gray-500">{formatDate()}</span>
+        <div className="flex-1" />
 
-          {/* Notificaciones */}
-          <button className="relative p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
-            <Bell size={20} />
-            <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-          </button>
+        {/* Estado y reloj */}
+        <div className="hidden items-center gap-2 text-xs text-green-700 md:flex">
+          <span className="h-2 w-2 rounded-full bg-green-500 shadow-[0_0_0_4px_rgb(16_185_129/0.15)]" />
+          Operativo
+        </div>
+        <TerranClock />
 
-          {/* Usuario */}
-          {user && (
-            <div className="flex items-center gap-3">
-              <div className="text-right">
-                <p className="text-sm font-medium text-gray-900">{user.nombre}</p>
-                <span className={`text-xs px-2 py-0.5 rounded ${roleColors[user.rol]}`}>
-                  {roleLabels[user.rol]}
-                </span>
-              </div>
-              <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center">
-                <User size={20} className="text-gray-500" />
-              </div>
+        {/* Usuario */}
+        {user && (
+          <div className="flex items-center gap-3 border-l border-line pl-3">
+            <div className="hidden text-right sm:block">
+              <p className="max-w-[180px] truncate text-sm font-semibold text-gray-900">{user.nombre}</p>
+              <p className="text-[11px] font-semibold text-energy">{roleLabels[user.rol] || user.rol}</p>
             </div>
-          )}
-        </div>
+            <RoleAvatar rol={user.rol} seed={user.email || user.id} nombre={user.nombre} size={38} />
+          </div>
+        )}
       </div>
     </header>
   );

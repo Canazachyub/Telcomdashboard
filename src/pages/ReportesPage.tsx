@@ -6,8 +6,11 @@ import {
   ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Eye, FileDown, Loader2,
   Package, X
 } from 'lucide-react';
+import { PageHeader, StatCard, SectionCard, EmptyState, ui } from '../components/ui';
 import PhotoGalleryModal from '../components/PhotoGalleryModal';
 import JSZip from 'jszip';
+import { OBSERVACION_EJECUTADO, OBSERVACION_NO_EJECUTADO } from '../config/report';
+import { downloadCsv } from '../utils/csv';
 import { generateReportePDF, generateReportePDFSimple, generateReportePDFBlob, generateReportePDFSimpleBlob, DEFAULT_OBSERVACION, type ReportePDFData } from '../utils/pdfGenerator';
 
 // Configuracion de paginacion
@@ -18,19 +21,17 @@ type SortField = 'numero' | 'serie' | 'suministro' | 'ruta' | 'lectura' | 'fecha
 type SortDirection = 'asc' | 'desc';
 
 // ========== CATEGORÍAS DE OBSERVACIÓN ==========
-// Textos exactos que se registran desde la app móvil
-const OBSERVACION_EJECUTADO = 'CONTRATISTA MALCOM EJECUTO EL CONTRASTE EN LA FECHA PROGRAMADA';
-const OBSERVACION_NO_EJECUTADO = 'CONTRATISTA MALCOM NO EJECUTA EL CONTRASTE EN LA FECHA PROGRAMADA';
+// Textos exactos que se registran desde la app móvil (configurables en src/config/report.ts)
 
 // Tipos de categoría para exportación
-type ObservacionCategory = 'todos' | 'ejecutados' | 'no_ejecutados' | 'observaciones';
+type ObservacionCategory = 'todos' | 'ejecutados' | 'no_ejecutados' | 'observaciones' | 'sin_observacion';
 
 // Función para clasificar un item según su observación
-// IMPORTANTE: Si no tiene observación, se considera NO EJECUTADO por defecto
-// (ya que la funcionalidad de observaciones es nueva y los registros anteriores no la tienen)
+// Sin observación registrada => categoria propia SIN OBSERVACION
+// (ya no se asume NO EJECUTADO, eso afirmaba algo que nadie registró)
 function getObservacionCategory(observacion: string | undefined): ObservacionCategory {
   if (!observacion || observacion.trim() === '') {
-    return 'no_ejecutados'; // Sin observación = NO EJECUTADO por defecto
+    return 'sin_observacion';
   }
 
   const obs = observacion.trim().toUpperCase();
@@ -99,6 +100,13 @@ export default function ReportesPage() {
   // Estado para observaciones editables (por suministro)
   // Se inicializa con los datos del servidor (notas) si existen
   const [observaciones, setObservaciones] = useState<Record<string, string>>({});
+
+  // Al cambiar de jornada: volver a la pagina 1 y descartar observaciones editadas
+  // de la jornada anterior (las claves son por suministro y se mezclaban entre jornadas)
+  useEffect(() => {
+    setCurrentPage(1);
+    setObservaciones({});
+  }, [selectedSheet]);
 
   // Inicializar observaciones con los datos del servidor (campo notas) cuando cambian los puntos
   useEffect(() => {
@@ -373,13 +381,14 @@ export default function ReportesPage() {
   }, [sortedItems, observaciones, selectedSheet]);
 
   // Calcular conteos por categoría de observación
-  // NOTA: Los items sin observación se cuentan como NO EJECUTADOS por defecto
+  // NOTA: Los items sin observación tienen su propia categoría (SIN OBSERVACION)
   const categoryCounts = useMemo(() => {
     const counts = {
       todos: sortedItems.length,
       ejecutados: 0,
       no_ejecutados: 0,
-      observaciones: 0
+      observaciones: 0,
+      sin_observacion: 0
     };
 
     sortedItems.forEach(item => {
@@ -389,6 +398,7 @@ export default function ReportesPage() {
       if (category === 'ejecutados') counts.ejecutados++;
       else if (category === 'no_ejecutados') counts.no_ejecutados++;
       else if (category === 'observaciones') counts.observaciones++;
+      else if (category === 'sin_observacion') counts.sin_observacion++;
     });
 
     return counts;
@@ -421,7 +431,8 @@ export default function ReportesPage() {
       todos: 'TODOS',
       ejecutados: 'EJECUTADOS',
       no_ejecutados: 'NO_EJECUTADOS',
-      observaciones: 'CON_OBSERVACIONES'
+      observaciones: 'CON_OBSERVACIONES',
+      sin_observacion: 'SIN_OBSERVACION'
     };
 
     const zip = new JSZip();
@@ -521,8 +532,8 @@ export default function ReportesPage() {
       return <ArrowUpDown size={14} className="text-gray-400" />;
     }
     return sortDirection === 'asc'
-      ? <ArrowUp size={14} className="text-blue-600" />
-      : <ArrowDown size={14} className="text-blue-600" />;
+      ? <ArrowUp size={14} className="text-electric" />
+      : <ArrowDown size={14} className="text-electric" />;
   };
 
   // Abrir foto en modal
@@ -532,7 +543,7 @@ export default function ReportesPage() {
     }
   };
 
-  // Exportar a CSV
+  // Exportar a CSV (BOM + celdas neutralizadas via helper compartido)
   const exportToCSV = () => {
     // Headers dinamicos con columnas de fotos y observacion
     const headers = ['N', 'Serie', 'Suministro', 'Ruta', 'Lectura', 'F.Contraste', 'F.Supervision', 'Tecnico', 'Distrito', 'Observacion'];
@@ -541,7 +552,7 @@ export default function ReportesPage() {
     }
 
     const rows = sortedItems.map((item) => {
-      const row = [
+      const row: (string | number)[] = [
         item.numero,
         item.serie,
         item.suministro,
@@ -562,107 +573,155 @@ export default function ReportesPage() {
       return row;
     });
 
-    const csvContent = [
-      headers.join(','),
-      ...rows.map((row) =>
-        row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')
-      ),
-    ].join('\n');
+    downloadCsv(`reporte_supervision_${selectedSheet}_${new Date().toISOString().split('T')[0]}.csv`, headers, rows);
+  };
 
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `reporte_supervision_${selectedSheet}_${new Date().toISOString().split('T')[0]}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+  const fmt = (n: number) => n.toLocaleString('es-PE');
+  const hasActiveFilters = Boolean(filters.search || filters.tecnico !== 'Todos' || filters.distrito !== 'Todos');
+  const progressPct = Math.round((reporteItems.length / filteredPoints.length) * 100) || 0;
+
+  // Cabecera de columna ordenable (solo presentación)
+  const sortTh = (field: SortField, label: string, tooltip?: string) => (
+    <th
+      className={`${ui.th} cursor-pointer select-none whitespace-nowrap px-3 transition-colors hover:text-electric`}
+      onClick={() => handleSort(field)}
+      title={tooltip}
+      aria-sort={sortField === field ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        <SortIcon field={field} />
+      </span>
+    </th>
+  );
+
+  // Botón de exportación por categoría (solo presentación)
+  const categoryBtnTone: Record<'green' | 'red' | 'amber' | 'gray', string> = {
+    green: 'border-green-200 bg-green-50 text-green-800 hover:border-green-500',
+    red: 'border-red-200 bg-red-50 text-red-800 hover:border-red-500',
+    amber: 'border-amber-200 bg-amber-50 text-amber-800 hover:border-amber-500',
+    gray: 'border-gray-200 bg-gray-100 text-gray-700 hover:border-gray-400',
+  };
+  const categoryDot: Record<'green' | 'red' | 'amber' | 'gray', string> = {
+    green: 'bg-green-500',
+    red: 'bg-red-500',
+    amber: 'bg-amber-500',
+    gray: 'bg-gray-400',
   };
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+      <div className="flex h-64 flex-col items-center justify-center gap-3">
+        <div className="h-12 w-12 animate-spin rounded-full border-2 border-gray-200 border-t-electric"></div>
+        <p className="text-sm text-gray-500">Cargando reportes…</p>
       </div>
     );
   }
 
+  const pagerBtn = 'inline-flex items-center justify-center rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm text-gray-700 transition hover:border-electric hover:text-electric disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-gray-300 disabled:hover:text-gray-700';
+
+  const categoryButtons: { key: Exclude<ObservacionCategory, 'todos'>; label: string; hint: string; tone: 'green' | 'red' | 'amber' | 'gray'; count: number }[] = [
+    { key: 'ejecutados', label: 'Ejecutados', hint: `Observación «${OBSERVACION_EJECUTADO}»`, tone: 'green', count: categoryCounts.ejecutados },
+    { key: 'no_ejecutados', label: 'No ejecutados', hint: `Observación «${OBSERVACION_NO_EJECUTADO}»`, tone: 'red', count: categoryCounts.no_ejecutados },
+    { key: 'observaciones', label: 'Con observaciones', hint: 'Observación escrita a mano', tone: 'amber', count: categoryCounts.observaciones },
+    { key: 'sin_observacion', label: 'Sin observación', hint: 'No se registró ninguna observación', tone: 'gray', count: categoryCounts.sin_observacion },
+  ];
+
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <FileText className="text-blue-600" />
-            Reportes de Supervision
-          </h1>
-          <p className="text-gray-500">
-            {selectedSheet
-              ? `SUPERVISION DE PROGRAMACION - ${selectedSheet}`
-              : 'Selecciona una jornada'}
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          {/* Boton exportar todos como ZIP */}
-          <button
-            onClick={() => setShowBatchModal(true)}
-            disabled={sortedItems.length === 0 || isBatchExporting}
-            className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Package size={18} />
-            Exportar {sortedItems.length} PDFs
-          </button>
-          <button
-            onClick={exportToCSV}
-            disabled={sortedItems.length === 0}
-            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Download size={18} />
-            CSV
-          </button>
-        </div>
-      </div>
+      {/* Cabecera */}
+      <PageHeader
+        kicker="Anexos de supervisión"
+        title="Reportes de supervisión"
+        icon={<FileText size={22} />}
+        subtitle={
+          selectedSheet
+            ? <>Supervisión de programación · Jornada <span className="font-medium text-gray-900">{selectedSheet}</span></>
+            : 'Selecciona una jornada para ver sus reportes'
+        }
+        actions={
+          <>
+            {/* Boton exportar todos como ZIP */}
+            <button
+              onClick={() => setShowBatchModal(true)}
+              disabled={sortedItems.length === 0 || isBatchExporting}
+              className={ui.btnPrimary}
+              title="Generar los PDF de los anexos y descargarlos en un ZIP"
+            >
+              <Package size={16} />
+              Exportar PDFs <span className="font-mono">({fmt(sortedItems.length)})</span>
+            </button>
+            <button
+              onClick={exportToCSV}
+              disabled={sortedItems.length === 0}
+              className={ui.btnSuccess}
+              title="Descargar la tabla en CSV"
+            >
+              <Download size={16} />
+              Exportar CSV
+            </button>
+          </>
+        }
+      />
 
-      {/* Stats */}
-      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-4 border border-blue-200">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm text-blue-600 font-medium">Supervisados con Lectura</p>
-            <p className="text-3xl font-bold text-blue-900">{reporteItems.length}</p>
-          </div>
-          <div className="text-right">
-            <p className="text-sm text-gray-500">de {filteredPoints.length} filtrados</p>
-            <p className="text-sm text-gray-500">{Math.round((reporteItems.length / filteredPoints.length) * 100) || 0}% completado</p>
-          </div>
-        </div>
+      {/* Resumen */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+        <StatCard
+          label="Supervisados con lectura"
+          value={fmt(reporteItems.length)}
+          hint={<>de <span className="font-mono">{fmt(filteredPoints.length)}</span> filtrados · <span className="font-mono">{progressPct}%</span> completado</>}
+          tone="cyan"
+          icon={<FileText size={18} />}
+        />
+        <StatCard label="Ejecutados" value={fmt(categoryCounts.ejecutados)} tone="green" />
+        <StatCard label="No ejecutados" value={fmt(categoryCounts.no_ejecutados)} tone="red" />
+        <StatCard label="Con observaciones" value={fmt(categoryCounts.observaciones)} tone="amber" />
+        <StatCard label="Sin observación" value={fmt(categoryCounts.sin_observacion)} tone="gray" />
       </div>
 
       {/* Filtros */}
-      <div className="bg-white rounded-xl border border-gray-200 p-4">
-        <div className="flex flex-wrap items-center gap-4">
-          {/* Busqueda */}
-          <div className="flex-1 min-w-[200px]">
+      <SectionCard
+        title="Filtros"
+        icon={<Search size={16} />}
+        actions={
+          <button
+            onClick={handleResetFilters}
+            className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-gray-500 transition hover:bg-gray-100 hover:text-electric"
+          >
+            <RotateCcw size={14} />
+            Limpiar filtros
+          </button>
+        }
+        bodyClassName="p-4"
+      >
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-12">
+          {/* Búsqueda */}
+          <div className="sm:col-span-2 lg:col-span-6">
+            <label className="mb-1 block text-xs font-medium text-gray-500">Buscar</label>
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+              <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
               <input
                 type="text"
                 value={filters.search}
                 onChange={(e) => handleFilterChange('search', e.target.value)}
-                placeholder="Buscar suministro, serie..."
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                placeholder="Suministro, serie…"
+                className={`${ui.input} pl-9`}
               />
             </div>
           </div>
 
           {/* Filtros extended */}
           {sheetStructure === 'extended' && tecnicos.length > 0 && (
-            <div className="flex items-center gap-2">
-              <Users size={18} className="text-gray-500" />
+            <div className="lg:col-span-3">
+              <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-gray-500">
+                <Users size={12} /> Técnico
+              </label>
               <select
                 value={filters.tecnico}
                 onChange={(e) => handleFilterChange('tecnico', e.target.value)}
-                className="border border-gray-300 rounded-lg px-3 py-2"
+                className={ui.input}
               >
-                <option value="Todos">Todos los tecnicos</option>
+                <option value="Todos">Todos los técnicos</option>
                 {tecnicos.map((t) => (
                   <option key={t} value={t}>{t}</option>
                 ))}
@@ -671,12 +730,14 @@ export default function ReportesPage() {
           )}
 
           {sheetStructure === 'extended' && distritos.length > 0 && (
-            <div className="flex items-center gap-2">
-              <Building2 size={18} className="text-gray-500" />
+            <div className="lg:col-span-3">
+              <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-gray-500">
+                <Building2 size={12} /> Distrito
+              </label>
               <select
                 value={filters.distrito}
                 onChange={(e) => handleFilterChange('distrito', e.target.value)}
-                className="border border-gray-300 rounded-lg px-3 py-2"
+                className={ui.input}
               >
                 <option value="Todos">Todos los distritos</option>
                 {distritos.map((d) => (
@@ -685,106 +746,41 @@ export default function ReportesPage() {
               </select>
             </div>
           )}
-
-          {/* Reset filtros */}
-          <button
-            onClick={handleResetFilters}
-            className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg"
-          >
-            <RotateCcw size={18} />
-            Limpiar
-          </button>
         </div>
 
-        <div className="mt-3 text-sm text-gray-500">
-          Mostrando {reporteItems.length} suministros con lectura registrada
+        <div className="mt-3 text-xs text-gray-500">
+          Mostrando <span className="font-mono text-gray-700">{fmt(reporteItems.length)}</span> suministros con lectura registrada
         </div>
-      </div>
+      </SectionCard>
 
       {/* Tabla */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto">
+      <div className={ui.tableWrap}>
+        <div className="max-h-[70vh] overflow-auto">
           <table className="w-full">
-            <thead className="bg-gray-50">
-              <tr>
-                <th
-                  className="text-left py-3 px-3 text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none whitespace-nowrap"
-                  onClick={() => handleSort('numero')}
-                >
-                  <span className="flex items-center gap-1">
-                    N
-                    <SortIcon field="numero" />
-                  </span>
-                </th>
-                <th
-                  className="text-left py-3 px-3 text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none whitespace-nowrap"
-                  onClick={() => handleSort('serie')}
-                >
-                  <span className="flex items-center gap-1">
-                    Serie
-                    <SortIcon field="serie" />
-                  </span>
-                </th>
-                <th
-                  className="text-left py-3 px-3 text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none whitespace-nowrap"
-                  onClick={() => handleSort('suministro')}
-                >
-                  <span className="flex items-center gap-1">
-                    Suministro
-                    <SortIcon field="suministro" />
-                  </span>
-                </th>
-                <th
-                  className="text-left py-3 px-3 text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none whitespace-nowrap"
-                  onClick={() => handleSort('ruta')}
-                >
-                  <span className="flex items-center gap-1">
-                    Ruta
-                    <SortIcon field="ruta" />
-                  </span>
-                </th>
-                <th
-                  className="text-left py-3 px-3 text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none whitespace-nowrap"
-                  onClick={() => handleSort('lectura')}
-                >
-                  <span className="flex items-center gap-1">
-                    Lectura
-                    <SortIcon field="lectura" />
-                  </span>
-                </th>
-                <th
-                  className="text-left py-3 px-3 text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none whitespace-nowrap"
-                  onClick={() => handleSort('fechaContraste')}
-                >
-                  <span className="flex items-center gap-1">
-                    F.Cont.
-                    <SortIcon field="fechaContraste" />
-                  </span>
-                </th>
-                <th
-                  className="text-left py-3 px-3 text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none whitespace-nowrap"
-                  onClick={() => handleSort('fechaSupervision')}
-                >
-                  <span className="flex items-center gap-1">
-                    F.Sup.
-                    <SortIcon field="fechaSupervision" />
-                  </span>
-                </th>
-                <th className="text-left py-3 px-3 text-sm font-medium text-gray-500 whitespace-nowrap min-w-[200px]">
-                  Observacion
+            <thead className="sticky top-0 z-[1] bg-gray-50">
+              <tr className={ui.theadRow}>
+                {sortTh('numero', 'N.º', 'Número correlativo')}
+                {sortTh('serie', 'Serie', 'Serie del medidor')}
+                {sortTh('suministro', 'Suministro')}
+                {sortTh('ruta', 'Ruta', 'Código de ruta')}
+                {sortTh('lectura', 'Lectura', 'Lectura del medidor')}
+                {sortTh('fechaContraste', 'Fecha contraste', 'Fecha de contraste')}
+                {sortTh('fechaSupervision', 'Fecha supervisión', 'Fecha de supervisión')}
+                <th className={`${ui.th} min-w-[220px] whitespace-nowrap px-3`} title="Se incluye en el PDF del anexo. Puedes editarla aquí.">
+                  Observación
                 </th>
                 {/* Columnas dinamicas de fotos */}
                 {Array.from({ length: Math.min(maxPhotos, 4) }, (_, i) => (
-                  <th key={i} className="text-center py-3 px-2 text-sm font-medium text-gray-500 whitespace-nowrap">
-                    F{i + 1}
+                  <th key={i} className={`${ui.th} whitespace-nowrap px-2 text-center`} title={`Foto ${i + 1}`}>
+                    Foto {i + 1}
                   </th>
                 ))}
                 {maxPhotos > 4 && (
-                  <th className="text-center py-3 px-2 text-sm font-medium text-gray-500 whitespace-nowrap">
-                    +
+                  <th className={`${ui.th} whitespace-nowrap px-2 text-center`} title="Fotos adicionales">
+                    Más fotos
                   </th>
                 )}
-                <th className="text-center py-3 px-3 text-sm font-medium text-gray-500 whitespace-nowrap">
+                <th className={`${ui.th} whitespace-nowrap px-3 text-center`} title="Descargar el anexo en PDF">
                   PDF
                 </th>
               </tr>
@@ -793,51 +789,54 @@ export default function ReportesPage() {
               {paginatedItems.map((item, index) => (
                 <tr
                   key={`${item.suministro}-${index}`}
-                  className="border-b border-gray-100 hover:bg-gray-50"
+                  className={ui.tbodyRow}
                 >
-                  <td className="py-2 px-3 text-sm text-gray-600">{item.numero}</td>
-                  <td className="py-2 px-3 text-sm font-mono text-gray-900">{item.serie}</td>
-                  <td className="py-2 px-3 text-sm font-medium text-gray-900">{item.suministro}</td>
-                  <td className="py-2 px-3 text-sm font-mono text-gray-600">{item.ruta}</td>
-                  <td className="py-2 px-3">
-                    <span className="px-2 py-0.5 bg-green-100 text-green-800 text-sm font-medium rounded">
+                  <td className={`${ui.td} px-3 py-2 font-mono text-gray-500`}>{item.numero}</td>
+                  <td className={`${ui.td} whitespace-nowrap px-3 py-2 font-mono text-gray-900`}>{item.serie}</td>
+                  <td className={`${ui.td} whitespace-nowrap px-3 py-2 font-mono font-medium text-gray-900`}>{item.suministro}</td>
+                  <td className={`${ui.td} whitespace-nowrap px-3 py-2 font-mono`}>{item.ruta}</td>
+                  <td className={`${ui.td} px-3 py-2`}>
+                    <span className="inline-block rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 font-mono text-sm font-semibold text-energy">
                       {item.lectura}
                     </span>
                   </td>
-                  <td className="py-2 px-3 text-sm text-gray-600">{item.fechaContraste}</td>
-                  <td className="py-2 px-3 text-sm text-gray-600">{item.fechaSupervision}</td>
+                  <td className={`${ui.td} whitespace-nowrap px-3 py-2 font-mono text-xs`}>{item.fechaContraste}</td>
+                  <td className={`${ui.td} whitespace-nowrap px-3 py-2 font-mono text-xs`}>{item.fechaSupervision}</td>
                   {/* Campo de observacion editable */}
-                  <td className="py-2 px-3">
+                  <td className={`${ui.td} px-3 py-2`}>
                     <input
                       type="text"
                       value={observaciones[item.suministro] ?? ''}
                       onChange={(e) => handleObservacionChange(item.suministro, e.target.value)}
                       placeholder={DEFAULT_OBSERVACION}
-                      className="w-full px-2 py-1 text-sm border border-gray-200 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                      className={`${ui.input} rounded-lg px-2 py-1 text-xs`}
+                      aria-label={`Observación del suministro ${item.suministro}`}
                     />
                   </td>
                   {/* Botones de fotos */}
                   {Array.from({ length: Math.min(maxPhotos, 4) }, (_, i) => (
-                    <td key={i} className="py-2 px-1 text-center">
+                    <td key={i} className="px-1 py-2 text-center">
                       {item.photoLinks[i] ? (
                         <button
                           onClick={() => handleOpenPhoto(item.photoLinks, item.suministro, i)}
-                          className="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition-colors"
+                          className="rounded-lg p-1.5 text-electric transition-colors hover:bg-gray-100"
                           title={`Ver foto ${i + 1}`}
+                          aria-label={`Ver foto ${i + 1}`}
                         >
                           <Eye size={16} />
                         </button>
                       ) : (
-                        <span className="text-gray-300">-</span>
+                        <span className="text-gray-300">—</span>
                       )}
                     </td>
                   ))}
                   {maxPhotos > 4 && (
-                    <td className="py-2 px-1 text-center">
+                    <td className="px-1 py-2 text-center">
                       {item.photoLinks.length > 4 && (
                         <button
                           onClick={() => handleOpenPhoto(item.photoLinks, item.suministro, 4)}
-                          className="px-1.5 py-0.5 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition-colors"
+                          className="rounded-md border border-gray-200 px-1.5 py-0.5 font-mono text-xs text-electric transition-colors hover:bg-gray-100"
+                          title={`Ver ${item.photoLinks.length - 4} fotos más`}
                         >
                           +{item.photoLinks.length - 4}
                         </button>
@@ -845,13 +844,14 @@ export default function ReportesPage() {
                     </td>
                   )}
                   {/* Boton generar PDF */}
-                  <td className="py-2 px-3 text-center">
+                  <td className="px-3 py-2 text-center">
                     <div className="flex items-center justify-center gap-1">
                       <button
                         onClick={() => handleGeneratePDF(item, true)}
                         disabled={generatingPDF === item.suministro}
-                        className="p-1.5 text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
-                        title="Generar PDF con imagenes"
+                        className="rounded-lg border border-red-200 bg-red-50 p-1.5 text-red-800 transition-colors hover:border-red-500 disabled:opacity-50"
+                        title="Descargar PDF del anexo (con fotos)"
+                        aria-label="Descargar PDF del anexo (con fotos)"
                       >
                         {generatingPDF === item.suministro ? (
                           <Loader2 size={16} className="animate-spin" />
@@ -868,68 +868,82 @@ export default function ReportesPage() {
         </div>
 
         {paginatedItems.length === 0 && (
-          <div className="text-center py-12 text-gray-500">
-            <FileText size={48} className="mx-auto mb-4 opacity-50" />
-            <p>No hay suministros con lectura registrada</p>
-            <p className="text-sm mt-1">Selecciona una jornada con datos supervisados</p>
-          </div>
+          <EmptyState
+            icon="reporte"
+            title="No hay suministros con lectura registrada"
+            description={selectedSheet
+              ? 'Cuando los técnicos registren lecturas en esta jornada, aparecerán aquí.'
+              : 'Selecciona una jornada con datos supervisados.'}
+            action={hasActiveFilters ? (
+              <button onClick={handleResetFilters} className={ui.btnSecondary}>
+                <RotateCcw size={16} />
+                Limpiar filtros
+              </button>
+            ) : undefined}
+          />
         )}
 
         {/* Paginacion */}
         {sortedItems.length > 0 && (
-          <div className="px-4 py-3 border-t border-gray-200 flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <span className="text-sm text-gray-600">
-                Mostrando {startIndex + 1}-{Math.min(endIndex, sortedItems.length)} de {sortedItems.length}
+          <div className="flex flex-wrap items-center justify-between gap-4 border-t border-gray-200 bg-gray-50 px-4 py-3">
+            <div className="flex flex-wrap items-center gap-4">
+              <span className="text-sm text-gray-500">
+                Filas <span className="font-mono text-gray-900">{fmt(startIndex + 1)}–{fmt(Math.min(endIndex, sortedItems.length))}</span> de{' '}
+                <span className="font-mono text-gray-900">{fmt(sortedItems.length)}</span>
               </span>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-500">Filas:</span>
+              <label className="flex items-center gap-2 text-sm text-gray-500">
+                Filas por página
                 <select
                   value={pageSize}
                   onChange={(e) => {
                     setPageSize(Number(e.target.value));
                     setCurrentPage(1);
                   }}
-                  className="border border-gray-300 rounded px-2 py-1 text-sm"
+                  className={`${ui.input} w-auto py-1`}
                 >
                   {PAGE_SIZES.map((size) => (
                     <option key={size} value={size}>{size}</option>
                   ))}
                 </select>
-              </div>
+              </label>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <button
                 onClick={() => setCurrentPage(1)}
                 disabled={currentPage === 1}
-                className="px-2 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className={pagerBtn}
               >
                 Primera
               </button>
               <button
                 onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
                 disabled={currentPage === 1}
-                className="p-1 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className={pagerBtn}
+                title="Página anterior"
+                aria-label="Página anterior"
               >
-                <ChevronLeft size={18} />
+                <ChevronLeft size={16} />
               </button>
-              <span className="px-3 py-1 text-sm">
-                Pagina {currentPage} de {totalPages || 1}
+              <span className="px-2 text-sm text-gray-500">
+                Página <span className="font-mono text-gray-900">{currentPage}</span> de{' '}
+                <span className="font-mono text-gray-900">{totalPages || 1}</span>
               </span>
               <button
                 onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
                 disabled={currentPage >= totalPages}
-                className="p-1 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className={pagerBtn}
+                title="Página siguiente"
+                aria-label="Página siguiente"
               >
-                <ChevronRight size={18} />
+                <ChevronRight size={16} />
               </button>
               <button
                 onClick={() => setCurrentPage(totalPages)}
                 disabled={currentPage >= totalPages}
-                className="px-2 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className={pagerBtn}
               >
-                Ultima
+                Última
               </button>
             </div>
           </div>
@@ -948,113 +962,88 @@ export default function ReportesPage() {
 
       {/* Modal de seleccion para batch export */}
       {showBatchModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden max-h-[90vh] overflow-y-auto">
-            <div className="bg-red-600 px-6 py-4 flex items-center justify-between sticky top-0">
-              <h3 className="text-lg font-semibold text-white flex items-center gap-2">
-                <Package size={20} />
-                Exportar PDFs como ZIP
-              </h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-4">
+              <div className="min-w-0">
+                <p className="brand-kicker">Exportación</p>
+                <h3 className="mt-1 flex items-center gap-2 text-lg font-semibold text-gray-900">
+                  <Package size={20} className="text-electric" />
+                  Exportar PDFs en un ZIP
+                </h3>
+                <p className="mt-0.5 text-sm text-gray-500">Elige qué anexos incluir en el archivo comprimido</p>
+              </div>
               <button
                 onClick={() => setShowBatchModal(false)}
-                className="text-white/80 hover:text-white"
+                className="rounded-lg p-1.5 text-gray-500 transition hover:bg-gray-100 hover:text-gray-900"
+                title="Cerrar"
+                aria-label="Cerrar"
               >
                 <X size={20} />
               </button>
             </div>
-            <div className="p-6">
-              {/* Resumen de categorías */}
-              <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-                <h4 className="font-medium text-gray-700 mb-3">Resumen por Observacion:</h4>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between items-center">
-                    <span className="text-green-700">EJECUTADOS:</span>
-                    <span className="font-bold text-green-700">{categoryCounts.ejecutados}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <span className="text-red-700">NO EJECUTADOS:</span>
-                      <span className="text-xs text-gray-500 ml-1">(incluye sin obs.)</span>
-                    </div>
-                    <span className="font-bold text-red-700">{categoryCounts.no_ejecutados}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-amber-700">CON OBSERVACIONES:</span>
-                    <span className="font-bold text-amber-700">{categoryCounts.observaciones}</span>
-                  </div>
-                </div>
-                <div className="mt-3 pt-3 border-t border-gray-200 flex justify-between items-center">
-                  <span className="font-medium text-gray-700">TOTAL:</span>
-                  <span className="font-bold text-gray-900">{categoryCounts.todos}</span>
-                </div>
-              </div>
 
+            <div className="flex-1 space-y-5 overflow-y-auto p-5">
               {/* Exportar por categoría (con imágenes) */}
-              <h4 className="font-medium text-gray-700 mb-3">Exportar por Categoria (con imagenes):</h4>
-              <div className="space-y-2 mb-6">
-                <button
-                  onClick={() => handleBatchExportByCategory('ejecutados', true)}
-                  disabled={categoryCounts.ejecutados === 0}
-                  className="w-full px-4 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-between"
-                >
-                  <span className="flex items-center gap-2">
-                    <FileDown size={16} />
-                    EJECUTADOS
-                  </span>
-                  <span className="bg-green-700 px-2 py-0.5 rounded text-sm">{categoryCounts.ejecutados}</span>
-                </button>
-
-                <button
-                  onClick={() => handleBatchExportByCategory('no_ejecutados', true)}
-                  disabled={categoryCounts.no_ejecutados === 0}
-                  className="w-full px-4 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-between"
-                >
-                  <span className="flex items-center gap-2">
-                    <FileDown size={16} />
-                    NO EJECUTADOS
-                  </span>
-                  <span className="bg-red-700 px-2 py-0.5 rounded text-sm">{categoryCounts.no_ejecutados}</span>
-                </button>
-
-                <button
-                  onClick={() => handleBatchExportByCategory('observaciones', true)}
-                  disabled={categoryCounts.observaciones === 0}
-                  className="w-full px-4 py-2.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-between"
-                >
-                  <span className="flex items-center gap-2">
-                    <FileDown size={16} />
-                    CON OBSERVACIONES
-                  </span>
-                  <span className="bg-amber-700 px-2 py-0.5 rounded text-sm">{categoryCounts.observaciones}</span>
-                </button>
+              <div>
+                <h4 className="text-sm font-semibold text-gray-900">Por tipo de observación</h4>
+                <p className="mb-3 text-xs text-gray-500">Cada PDF incluye las fotos del suministro.</p>
+                <div className="space-y-2">
+                  {categoryButtons.map((c) => (
+                    <button
+                      key={c.key}
+                      onClick={() => handleBatchExportByCategory(c.key, true)}
+                      disabled={c.count === 0}
+                      className={`flex w-full items-center justify-between gap-3 rounded-xl border px-4 py-2.5 text-left transition disabled:cursor-not-allowed disabled:opacity-40 ${categoryBtnTone[c.tone]}`}
+                    >
+                      <span className="flex min-w-0 items-center gap-2.5">
+                        <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${categoryDot[c.tone]}`} />
+                        <span className="min-w-0">
+                          <span className="block text-sm font-semibold">{c.label}</span>
+                          <span className="block truncate text-xs opacity-75">{c.hint}</span>
+                        </span>
+                      </span>
+                      <span className="flex shrink-0 items-center gap-2">
+                        <span className="font-mono text-lg font-semibold">{fmt(c.count)}</span>
+                        <FileDown size={16} />
+                      </span>
+                    </button>
+                  ))}
+                </div>
               </div>
-
-              {/* Separador */}
-              <div className="border-t border-gray-200 my-4"></div>
 
               {/* Exportar todos */}
-              <h4 className="font-medium text-gray-700 mb-3">Exportar TODOS ({sortedItems.length}):</h4>
-              <div className="space-y-2">
-                <button
-                  onClick={() => handleBatchExport(false)}
-                  className="w-full px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2"
-                >
-                  <FileDown size={16} />
-                  Todos sin imagenes (rapido)
-                </button>
+              <div className="border-t border-gray-200 pt-5">
+                <h4 className="text-sm font-semibold text-gray-900">
+                  Todos los anexos <span className="font-mono font-normal text-gray-500">({fmt(sortedItems.length)})</span>
+                </h4>
+                <p className="mb-3 text-xs text-gray-500">
+                  Sin fotos es mucho más rápido; con fotos puede tardar varios minutos.
+                </p>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <button
+                    onClick={() => handleBatchExport(false)}
+                    className={ui.btnPrimary}
+                  >
+                    <FileDown size={16} />
+                    Todos sin fotos (rápido)
+                  </button>
 
-                <button
-                  onClick={() => handleBatchExport(true)}
-                  className="w-full px-4 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center justify-center gap-2"
-                >
-                  <FileDown size={16} />
-                  Todos con imagenes (lento)
-                </button>
+                  <button
+                    onClick={() => handleBatchExport(true)}
+                    className={ui.btnSecondary}
+                  >
+                    <FileDown size={16} />
+                    Todos con fotos (lento)
+                  </button>
+                </div>
               </div>
+            </div>
 
+            <div className="flex justify-end border-t border-gray-200 bg-gray-50 px-5 py-4">
               <button
                 onClick={() => setShowBatchModal(false)}
-                className="w-full mt-4 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                className={ui.btnSecondary}
               >
                 Cancelar
               </button>
@@ -1065,27 +1054,31 @@ export default function ReportesPage() {
 
       {/* Indicador de progreso batch export */}
       {isBatchExporting && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl">
             <div className="text-center">
-              <Loader2 size={48} className="animate-spin text-red-600 mx-auto mb-4" />
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                Generando PDFs...
+              <Loader2 size={44} className="mx-auto mb-4 animate-spin text-electric" />
+              <p className="brand-kicker">Exportación en curso</p>
+              <h3 className="mb-2 mt-1 text-lg font-semibold text-gray-900">
+                Generando PDFs…
               </h3>
-              <p className="text-gray-600 mb-4">
+              <p className="mb-4 truncate font-mono text-sm text-gray-600">
                 {batchProgress.currentFile}
               </p>
 
               {/* Barra de progreso */}
-              <div className="w-full bg-gray-200 rounded-full h-3 mb-2">
+              <div className="mb-2 h-2.5 w-full overflow-hidden rounded-full bg-gray-100">
                 <div
-                  className="bg-red-600 h-3 rounded-full transition-all duration-300"
+                  className="h-full rounded-full bg-electric shadow-[0_0_12px_rgb(0_212_255/0.6)] transition-all duration-300"
                   style={{ width: `${(batchProgress.current / batchProgress.total) * 100}%` }}
                 />
               </div>
               <p className="text-sm text-gray-500">
-                {batchProgress.current} de {batchProgress.total} ({Math.round((batchProgress.current / batchProgress.total) * 100)}%)
+                <span className="font-mono text-gray-900">{fmt(batchProgress.current)}</span> de{' '}
+                <span className="font-mono text-gray-900">{fmt(batchProgress.total)}</span>{' '}
+                (<span className="font-mono">{Math.round((batchProgress.current / batchProgress.total) * 100)}%</span>)
               </p>
+              <p className="mt-3 text-xs text-gray-500">No cierres ni recargues esta pestaña.</p>
             </div>
           </div>
         </div>

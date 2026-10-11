@@ -1,3 +1,5 @@
+import { useSuministroDrawer } from '../stores/suministroDrawerStore';
+import { parseFecha } from '../components/map/dailyProgress';
 import { usePointsStore, useExtendedStats, useSheetStructure } from '../stores/pointsStore';
 import {
   MapPin,
@@ -15,417 +17,358 @@ import {
   Link,
   Brain,
   Sparkles,
+  ListChecks,
 } from 'lucide-react';
 import { getStatusLabel } from '../types/point';
+import { useMemo } from 'react';
+import { formatCoords } from '../utils/format';
+import { PageHeader, StatCard, SectionCard, EmptyState, Badge, STATUS_UI, ui } from '../components/ui';
+
+/** Formatea un número con separador de miles (solo presentación). */
+const fmt = (n: number | string | undefined | null) => {
+  const v = Number(n);
+  return Number.isFinite(v) ? v.toLocaleString('es-PE') : String(n ?? '-');
+};
+
+/** Barra de progreso visual (solo presentación). */
+function ProgressBar({ value, fill = 'bg-electric', height = 'h-2' }: { value: number | string; fill?: string; height?: string }) {
+  const pct = Math.max(0, Math.min(100, Number(value) || 0));
+  return (
+    <div className={`w-full overflow-hidden rounded-full bg-gray-200 ${height}`}>
+      <div className={`${height} rounded-full ${fill} transition-all duration-500`} style={{ width: `${pct}%` }} />
+    </div>
+  );
+}
 
 export default function DashboardPage() {
-  const { stats, filteredPoints, selectedSheet, isLoading, lastUpdated, refreshPoints } = usePointsStore();
+  const { stats, filteredPoints, pointsExtended, selectedSheet, isLoading, lastUpdated, refreshPoints } = usePointsStore();
   const extendedStats = useExtendedStats();
   const sheetStructure = useSheetStructure();
 
-  const statsCards = [
-    {
-      title: 'Total Puntos',
-      value: stats.total,
-      icon: <MapPin className="text-blue-500" size={24} />,
-      color: 'bg-blue-50 border-blue-200',
-    },
-    {
-      title: 'Completados',
-      value: stats.completados,
-      icon: <CheckCircle className="text-green-500" size={24} />,
-      color: 'bg-green-50 border-green-200',
-    },
-    {
-      title: 'En Proceso',
-      value: stats.enProceso,
-      icon: <Clock className="text-yellow-500" size={24} />,
-      color: 'bg-yellow-50 border-yellow-200',
-    },
-    {
-      title: 'Pendientes',
-      value: stats.pendientes,
-      icon: <AlertCircle className="text-red-500" size={24} />,
-      color: 'bg-red-50 border-red-200',
-    },
-  ];
-
   // Contar total de fotos
-  const totalPhotos = filteredPoints.reduce((acc, p) => acc + p.photoCount, 0);
+  const totalPhotos = filteredPoints.reduce((acc, p) => acc + (Number(p.photoCount) || 0), 0);
+
+  // Avance por tecnico calculado localmente: cantidad REAL de suministros asignados
+  // a cada tecnico (columna B) en la jornada, no los conteos agregados del API.
+  const avancePorTecnico = useMemo(() => {
+    const map: Record<string, { total: number; completado: number; en_proceso: number; pendiente: number }> = {};
+    pointsExtended.forEach((p) => {
+      // Técnico asignado (columna B) o, si no hay, quien lo trabajó desde su dispositivo
+      const fotografo = (p.odtNombre || p.photoLinks?.find((l) => l.odtNombre)?.odtNombre || '').trim();
+      const tecnico = (p.tecnico || '').trim() || fotografo || 'Sin asignar';
+      if (!map[tecnico]) map[tecnico] = { total: 0, completado: 0, en_proceso: 0, pendiente: 0 };
+      map[tecnico].total++;
+      if (p.status === 'completado') map[tecnico].completado++;
+      else if (p.status === 'en_proceso') map[tecnico].en_proceso++;
+      else map[tecnico].pendiente++;
+    });
+    return Object.entries(map).sort((a, b) => b[1].total - a[1].total);
+  }, [pointsExtended]);
+
+  // Últimos suministros trabajados: los que tienen foto, ordenados por la foto más reciente
+  const openFicha = useSuministroDrawer((st) => st.open);
+  const ultimos = useMemo(() => {
+    const fechaDe = (p: (typeof filteredPoints)[number]) => {
+      const ds = (p.photoLinks || []).map((l) => parseFecha(l.fecha)?.getTime() ?? 0);
+      const d = Math.max(0, ...ds, parseFecha(p.fechaSupervision)?.getTime() ?? 0, parseFecha(p.syncedAt)?.getTime() ?? 0);
+      return d;
+    };
+    return filteredPoints
+      .filter((p) => (p.photoCount || p.photoLinks?.length || 0) > 0)
+      .map((p) => ({ p, t: fechaDe(p) }))
+      .sort((a, b) => b.t - a.t)
+      .slice(0, 10)
+      .map((x) => x.p);
+  }, [filteredPoints]);
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-electric"></div>
       </div>
     );
   }
 
+  const conFoto = filteredPoints.filter(p => p.hasPhoto).length;
+  const sinFoto = filteredPoints.filter(p => !p.hasPhoto).length;
+
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-          <p className="text-gray-500 flex items-center gap-2 flex-wrap">
-            {selectedSheet ? `Jornada: ${selectedSheet}` : 'Selecciona una jornada'}
+      {/* Cabecera con imagen de marca */}
+      <PageHeader
+        image="hero-torre.webp"
+        kicker={selectedSheet ? 'Jornada activa' : 'Panel de control'}
+        title={selectedSheet || 'Selecciona una jornada'}
+        subtitle={
+          <span className="flex flex-wrap items-center gap-2">
             {sheetStructure === 'extended' ? (
-              <span className="inline-flex items-center gap-1 text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
+              <Badge tone="blue">
                 <Database size={12} />
-                33 Columnas
-              </span>
+                Estructura completa
+              </Badge>
             ) : (
-              <span className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
+              <Badge tone="gray">
                 <Zap size={12} />
-                Legacy
+                Estructura simple
+              </Badge>
+            )}
+            {lastUpdated && (
+              <span>
+                Última actualización: <span className="font-mono">{new Date(lastUpdated).toLocaleString('es-PE')}</span>
               </span>
             )}
-          </p>
-          {lastUpdated && (
-            <p className="text-xs text-gray-400 mt-1">
-              Actualizado: {new Date(lastUpdated).toLocaleString('es-PE')}
-            </p>
-          )}
-        </div>
-        <button
-          onClick={() => refreshPoints()}
-          disabled={isLoading}
-          className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
-          {isLoading ? 'Cargando...' : 'Actualizar'}
-        </button>
+          </span>
+        }
+        actions={
+          <button onClick={() => refreshPoints()} disabled={isLoading} className={ui.btnPrimary}>
+            <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} />
+            {isLoading ? 'Cargando...' : 'Actualizar'}
+          </button>
+        }
+      />
+
+      {/* Indicadores principales */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatCard label="Total de suministros" value={fmt(stats.total)} tone="cyan" icon={<MapPin size={20} />} />
+        <StatCard label="Completados" value={fmt(stats.completados)} tone="green" icon={<CheckCircle size={20} />} />
+        <StatCard label="En proceso" value={fmt(stats.enProceso)} tone="yellow" icon={<Clock size={20} />} />
+        <StatCard label="Pendientes" value={fmt(stats.pendientes)} tone="red" icon={<AlertCircle size={20} />} />
       </div>
 
-      {/* Enlaces Rapidos Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Enlaces Rapidos */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Link className="text-primary-600" size={20} />
-            <h2 className="text-lg font-semibold text-gray-900">Enlaces Rapidos</h2>
+      {/* Progreso y fotos */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <SectionCard title="Progreso general" icon={<TrendingUp size={18} />} className="hud-corners">
+          <div className="space-y-5">
+            <div>
+              <div className="mb-2 flex items-end justify-between">
+                <span className="text-sm text-gray-500">Avance de la jornada (completados / total)</span>
+                <span className="font-mono text-2xl font-semibold text-electric">{stats.porcentaje}%</span>
+              </div>
+              <ProgressBar value={stats.porcentaje} height="h-3" fill="bg-gradient-to-r from-blue-600 to-electric" />
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { label: 'Completados', value: stats.completados, dot: 'bg-green-500', text: 'text-green-700' },
+                { label: 'En proceso', value: stats.enProceso, dot: 'bg-yellow-500', text: 'text-yellow-700' },
+                { label: 'Pendientes', value: stats.pendientes, dot: 'bg-red-500', text: 'text-red-700' },
+              ].map((item) => (
+                <div key={item.label} className="rounded-xl border border-gray-200 bg-gray-50 p-3 text-center">
+                  <p className="flex items-center justify-center gap-1.5 text-xs text-gray-500">
+                    <span className={`h-2 w-2 rounded-full ${item.dot}`} />
+                    {item.label}
+                  </p>
+                  <p className={`mt-1 font-mono text-lg font-semibold ${item.text}`}>{fmt(item.value)}</p>
+                </div>
+              ))}
+            </div>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        </SectionCard>
+
+        <SectionCard title="Resumen de fotos" icon={<Camera size={18} />}>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+              <span className="text-sm text-gray-600">Fotos sincronizadas</span>
+              <span className="font-mono text-2xl font-semibold text-electric">{fmt(totalPhotos)}</span>
+            </div>
+            <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+              <span className="text-sm text-gray-600">Suministros con foto</span>
+              <span className="font-mono text-2xl font-semibold text-green-700">{fmt(conFoto)}</span>
+            </div>
+            <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+              <span className="text-sm text-gray-600">Suministros sin foto</span>
+              <span className="font-mono text-2xl font-semibold text-red-700">{fmt(sinFoto)}</span>
+            </div>
+          </div>
+        </SectionCard>
+      </div>
+
+      {/* Avance por técnico (solo estructura completa) */}
+      {sheetStructure === 'extended' && avancePorTecnico.length > 0 && (
+        <SectionCard
+          title="Avance por técnico"
+          icon={<Users size={18} />}
+          actions={<span className="text-xs text-gray-500">{avancePorTecnico.length} técnicos</span>}
+        >
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+            {avancePorTecnico.map(([tecnico, stats]) => {
+              const porcentaje = stats.total > 0 ? ((stats.completado / stats.total) * 100).toFixed(1) : '0';
+              return (
+                <div key={tecnico} className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                  <div className="mb-3 flex items-center gap-3">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-cyan-400/40 bg-cyan-400/10 font-mono text-sm font-bold text-electric">
+                      {tecnico.charAt(0).toUpperCase()}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="truncate text-sm font-semibold text-gray-900" title={tecnico}>
+                        {tecnico}
+                      </h3>
+                      <p className="text-xs text-gray-500">
+                        <span className="font-mono text-gray-700">{fmt(stats.completado)}</span> de{' '}
+                        <span className="font-mono text-gray-700">{fmt(stats.total)}</span> completados
+                      </p>
+                    </div>
+                    <span className="font-mono text-sm font-semibold text-electric">{porcentaje}%</span>
+                  </div>
+                  <ProgressBar value={porcentaje} fill="bg-blue-600" />
+                </div>
+              );
+            })}
+          </div>
+        </SectionCard>
+      )}
+
+      {/* Avance por distrito (solo estructura completa) */}
+      {sheetStructure === 'extended' && extendedStats?.byDistrito && Object.keys(extendedStats.byDistrito).length > 0 && (
+        <SectionCard title="Avance por distrito" icon={<Building2 size={18} />}>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {Object.entries(extendedStats.byDistrito).map(([distrito, stats]) => {
+              const porcentaje = stats.total > 0 ? ((stats.completado / stats.total) * 100).toFixed(1) : '0';
+              return (
+                <div key={distrito} className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <h3 className="truncate text-sm font-semibold text-gray-900" title={distrito}>
+                      {distrito}
+                    </h3>
+                    <span className="font-mono text-sm font-semibold text-green-700">{porcentaje}%</span>
+                  </div>
+                  <ProgressBar value={porcentaje} fill="bg-green-500" />
+                  <p className="mt-2 text-xs text-gray-500">
+                    <span className="font-mono text-gray-700">{fmt(stats.completado)}</span> de{' '}
+                    <span className="font-mono text-gray-700">{fmt(stats.total)}</span> completados
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </SectionCard>
+      )}
+
+      {/* Últimos puntos */}
+      <SectionCard
+        title="Últimos suministros actualizados"
+        icon={<ListChecks size={18} />}
+        actions={filteredPoints.length > 0 ? <span className="text-xs text-gray-500">Se muestran hasta 10</span> : undefined}
+        bodyClassName="p-0"
+      >
+        {filteredPoints.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px]">
+              <thead>
+                <tr className={ui.theadRow}>
+                  <th className={ui.th}>Suministro</th>
+                  {sheetStructure === 'extended' && (
+                    <>
+                      <th className={ui.th}>Técnico</th>
+                      <th className={ui.th}>Cliente</th>
+                    </>
+                  )}
+                  <th className={ui.th}>Estado</th>
+                  <th className={ui.th}>Fotos</th>
+                  <th className={ui.th}>Coordenadas</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ultimos.map((point, index) => (
+                  <tr
+                    key={`${point.suministro}-${index}`}
+                    className={`${ui.tbodyRow} cursor-pointer`}
+                    onClick={() => openFicha(point, selectedSheet)}
+                    title="Ver ficha del suministro"
+                  >
+                    <td className={`${ui.td} font-mono font-medium text-electric`}>{point.suministro}</td>
+                    {sheetStructure === 'extended' && (
+                      <>
+                        <td className={ui.td}>
+                          {point.tecnico || point.odtNombre || '—'}
+                          {!point.tecnico && point.odtNombre && (
+                            <span className="ml-1 text-[10px] text-gray-400">(dispositivo)</span>
+                          )}
+                        </td>
+                        <td className={`${ui.td} max-w-[180px] truncate`} title={point.clienteNombre || ''}>
+                          {point.clienteNombre || '—'}
+                        </td>
+                      </>
+                    )}
+                    <td className={ui.td}>
+                      <Badge tone={STATUS_UI[point.status]?.tone ?? 'red'} dot>
+                        {getStatusLabel(point.status)}
+                      </Badge>
+                    </td>
+                    <td className={`${ui.td} font-mono`}>{point.photoCount}</td>
+                    <td className={`${ui.td} font-mono text-xs`}>
+                      {formatCoords(point.latReal, point.longReal)
+                        ?? formatCoords(point.latRef, point.longRef)
+                        ?? 'Sin coordenadas'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {filteredPoints.length === 0 && (
+          <EmptyState
+            icon="medidor"
+            compact
+            title="No hay suministros cargados"
+            description="Selecciona una jornada para ver sus suministros."
+          />
+        )}
+      </SectionCard>
+
+      {/* Accesos directos (menor peso visual) */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <SectionCard title="Enlaces rápidos" icon={<Link size={16} />} bodyClassName="p-3">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <a
               href="https://canazachyub.github.io/seacetelcom/"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-3 p-4 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors group"
+              className="group flex items-center gap-3 rounded-xl border border-gray-200 px-3 py-2.5 transition-colors hover:border-electric/60 hover:bg-gray-50"
             >
-              <div className="p-2 bg-blue-500 rounded-lg">
-                <ExternalLink className="text-white" size={18} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-gray-900 group-hover:text-blue-700">SEACE Seguimiento</p>
-                <p className="text-xs text-gray-500 truncate">Seguimiento de procesos</p>
+              <ExternalLink className="shrink-0 text-blue-800" size={16} />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-gray-900 group-hover:text-electric">Seguimiento SEACE</p>
+                <p className="truncate text-xs text-gray-500">Procesos de contratación</p>
               </div>
             </a>
             <a
               href="https://ingeneriatelcom.com/admin"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-3 p-4 bg-green-50 hover:bg-green-100 border border-green-200 rounded-lg transition-colors group"
+              className="group flex items-center gap-3 rounded-xl border border-gray-200 px-3 py-2.5 transition-colors hover:border-electric/60 hover:bg-gray-50"
             >
-              <div className="p-2 bg-green-500 rounded-lg">
-                <Users className="text-white" size={18} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-gray-900 group-hover:text-green-700">Administrar Trabajadores</p>
-                <p className="text-xs text-gray-500 truncate">Gestion de empleados</p>
+              <Users className="shrink-0 text-green-700" size={16} />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-gray-900 group-hover:text-electric">Administrar trabajadores</p>
+                <p className="truncate text-xs text-gray-500">Gestión de personal</p>
               </div>
             </a>
           </div>
-        </div>
+        </SectionCard>
 
-        {/* Seccion IA */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Brain className="text-purple-600" size={20} />
-            <h2 className="text-lg font-semibold text-gray-900">Herramientas IA</h2>
+        <SectionCard title="Herramientas IA" icon={<Brain size={16} />} bodyClassName="p-3">
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { href: 'https://gemini.google.com/app', label: 'Gemini', icon: <Sparkles size={16} />, color: 'text-purple-700' },
+              { href: 'https://notebooklm.google.com/', label: 'NotebookLM', icon: <Brain size={16} />, color: 'text-amber-700' },
+              { href: 'https://chatgpt.com/', label: 'ChatGPT', icon: <Sparkles size={16} />, color: 'text-green-700' },
+            ].map((tool) => (
+              <a
+                key={tool.label}
+                href={tool.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-3 py-2.5 transition-colors hover:border-electric/60 hover:bg-gray-50"
+              >
+                <span className={tool.color}>{tool.icon}</span>
+                <span className="truncate text-sm font-medium text-gray-900 group-hover:text-electric">{tool.label}</span>
+              </a>
+            ))}
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <a
-              href="https://gemini.google.com/app"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex flex-col items-center gap-2 p-4 bg-gradient-to-br from-blue-50 to-purple-50 hover:from-blue-100 hover:to-purple-100 border border-purple-200 rounded-lg transition-colors group"
-            >
-              <div className="p-2 bg-gradient-to-r from-blue-500 to-purple-500 rounded-lg">
-                <Sparkles className="text-white" size={18} />
-              </div>
-              <p className="font-medium text-gray-900 group-hover:text-purple-700 text-sm">Gemini</p>
-            </a>
-            <a
-              href="https://notebooklm.google.com/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex flex-col items-center gap-2 p-4 bg-gradient-to-br from-orange-50 to-yellow-50 hover:from-orange-100 hover:to-yellow-100 border border-orange-200 rounded-lg transition-colors group"
-            >
-              <div className="p-2 bg-gradient-to-r from-orange-500 to-yellow-500 rounded-lg">
-                <Brain className="text-white" size={18} />
-              </div>
-              <p className="font-medium text-gray-900 group-hover:text-orange-700 text-sm">NotebookLM</p>
-            </a>
-            <a
-              href="https://chatgpt.com/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex flex-col items-center gap-2 p-4 bg-gradient-to-br from-green-50 to-teal-50 hover:from-green-100 hover:to-teal-100 border border-green-200 rounded-lg transition-colors group"
-            >
-              <div className="p-2 bg-gradient-to-r from-green-600 to-teal-500 rounded-lg">
-                <Sparkles className="text-white" size={18} />
-              </div>
-              <p className="font-medium text-gray-900 group-hover:text-green-700 text-sm">ChatGPT</p>
-            </a>
-          </div>
-        </div>
-      </div>
-
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {statsCards.map((card) => (
-          <div
-            key={card.title}
-            className={`${card.color} border rounded-xl p-5 transition-shadow hover:shadow-md`}
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600">{card.title}</p>
-                <p className="text-3xl font-bold text-gray-900 mt-1">{card.value}</p>
-              </div>
-              <div className="p-3 bg-white rounded-lg shadow-sm">{card.icon}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Progress & Photos Summary */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Progress Bar */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <TrendingUp className="text-primary-600" size={20} />
-            <h2 className="text-lg font-semibold text-gray-900">Progreso General</h2>
-          </div>
-
-          <div className="space-y-4">
-            <div>
-              <div className="flex justify-between text-sm mb-2">
-                <span className="text-gray-600">Avance</span>
-                <span className="font-medium text-gray-900">{stats.porcentaje}%</span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-4">
-                <div
-                  className="bg-gradient-to-r from-primary-500 to-primary-600 h-4 rounded-full transition-all duration-500"
-                  style={{ width: `${stats.porcentaje}%` }}
-                ></div>
-              </div>
-            </div>
-
-            {/* Breakdown */}
-            <div className="grid grid-cols-3 gap-4 mt-6">
-              <div className="text-center">
-                <div className="w-3 h-3 bg-green-500 rounded-full mx-auto mb-1"></div>
-                <p className="text-xs text-gray-500">Completados</p>
-                <p className="text-lg font-bold text-gray-900">{stats.completados}</p>
-              </div>
-              <div className="text-center">
-                <div className="w-3 h-3 bg-yellow-500 rounded-full mx-auto mb-1"></div>
-                <p className="text-xs text-gray-500">En Proceso</p>
-                <p className="text-lg font-bold text-gray-900">{stats.enProceso}</p>
-              </div>
-              <div className="text-center">
-                <div className="w-3 h-3 bg-red-500 rounded-full mx-auto mb-1"></div>
-                <p className="text-xs text-gray-500">Pendientes</p>
-                <p className="text-lg font-bold text-gray-900">{stats.pendientes}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Photos Summary */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Camera className="text-primary-600" size={20} />
-            <h2 className="text-lg font-semibold text-gray-900">Resumen de Fotos</h2>
-          </div>
-
-          <div className="space-y-4">
-            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-              <span className="text-gray-600">Total de fotos sincronizadas</span>
-              <span className="text-2xl font-bold text-primary-600">{totalPhotos}</span>
-            </div>
-
-            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-              <span className="text-gray-600">Puntos con foto</span>
-              <span className="text-2xl font-bold text-green-600">
-                {filteredPoints.filter(p => p.hasPhoto).length}
-              </span>
-            </div>
-
-            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-              <span className="text-gray-600">Puntos sin foto</span>
-              <span className="text-2xl font-bold text-red-600">
-                {filteredPoints.filter(p => !p.hasPhoto).length}
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Stats by Tecnico (Extended only) */}
-      {sheetStructure === 'extended' && extendedStats?.byTecnico && Object.keys(extendedStats.byTecnico).length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Users className="text-primary-600" size={20} />
-            <h2 className="text-lg font-semibold text-gray-900">Avance por Tecnico</h2>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {Object.entries(extendedStats.byTecnico).map(([tecnico, stats]) => {
-              const porcentaje = stats.total > 0 ? ((stats.completado / stats.total) * 100).toFixed(1) : '0';
-              return (
-                <div key={tecnico} className="border border-gray-100 rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="font-medium text-gray-900 truncate" title={tecnico}>
-                      {tecnico}
-                    </h3>
-                    <span className="text-sm font-bold text-primary-600">{porcentaje}%</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
-                    <div
-                      className="bg-primary-500 h-2 rounded-full"
-                      style={{ width: `${porcentaje}%` }}
-                    ></div>
-                  </div>
-                  <div className="flex justify-between text-xs text-gray-500">
-                    <span>{stats.completado} completados</span>
-                    <span>{stats.total} total</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Stats by Distrito (Extended only) */}
-      {sheetStructure === 'extended' && extendedStats?.byDistrito && Object.keys(extendedStats.byDistrito).length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Building2 className="text-primary-600" size={20} />
-            <h2 className="text-lg font-semibold text-gray-900">Avance por Distrito</h2>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {Object.entries(extendedStats.byDistrito).map(([distrito, stats]) => {
-              const porcentaje = stats.total > 0 ? ((stats.completado / stats.total) * 100).toFixed(1) : '0';
-              return (
-                <div key={distrito} className="border border-gray-100 rounded-lg p-4">
-                  <h3 className="font-medium text-gray-900 mb-2 truncate" title={distrito}>
-                    {distrito}
-                  </h3>
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 bg-gray-200 rounded-full h-2">
-                      <div
-                        className="bg-green-500 h-2 rounded-full"
-                        style={{ width: `${porcentaje}%` }}
-                      ></div>
-                    </div>
-                    <span className="text-sm font-medium text-gray-600">{porcentaje}%</span>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {stats.completado} / {stats.total}
-                  </p>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Recent Points Table */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">
-          Ultimos Puntos Actualizados
-        </h2>
-
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-gray-200">
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">
-                  Suministro
-                </th>
-                {sheetStructure === 'extended' && (
-                  <>
-                    <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">
-                      Tecnico
-                    </th>
-                    <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">
-                      Cliente
-                    </th>
-                  </>
-                )}
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">
-                  Estado
-                </th>
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">
-                  Fotos
-                </th>
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">
-                  Coordenadas
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredPoints.slice(0, 10).map((point, index) => (
-                <tr key={index} className="border-b border-gray-100 hover:bg-gray-50">
-                  <td className="py-3 px-4 font-medium text-gray-900">
-                    {point.suministro}
-                  </td>
-                  {sheetStructure === 'extended' && (
-                    <>
-                      <td className="py-3 px-4 text-gray-600">
-                        {point.tecnico || '-'}
-                      </td>
-                      <td className="py-3 px-4 text-gray-600 max-w-[150px] truncate" title={point.clienteNombre || ''}>
-                        {point.clienteNombre || '-'}
-                      </td>
-                    </>
-                  )}
-                  <td className="py-3 px-4">
-                    <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        point.status === 'completado'
-                          ? 'bg-green-100 text-green-800'
-                          : point.status === 'en_proceso'
-                          ? 'bg-yellow-100 text-yellow-800'
-                          : 'bg-red-100 text-red-800'
-                      }`}
-                    >
-                      {getStatusLabel(point.status)}
-                    </span>
-                  </td>
-                  <td className="py-3 px-4 text-gray-600">{point.photoCount}</td>
-                  <td className="py-3 px-4 text-gray-600 text-sm">
-                    {point.latReal && point.longReal
-                      ? `${point.latReal.toFixed(6)}, ${point.longReal.toFixed(6)}`
-                      : point.latRef && point.longRef
-                      ? `${point.latRef.toFixed(6)}, ${point.longRef.toFixed(6)}`
-                      : 'Sin coordenadas'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {filteredPoints.length === 0 && (
-          <div className="text-center py-8 text-gray-500">
-            No hay puntos cargados. Selecciona una jornada para comenzar.
-          </div>
-        )}
+        </SectionCard>
       </div>
     </div>
   );

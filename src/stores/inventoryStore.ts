@@ -41,12 +41,13 @@ function filterRecords(records: InventoryRecord[], filters: InventoryFilters): I
     // Filtro por busqueda
     if (filters.search) {
       const searchLower = filters.search.toLowerCase();
+      // Las celdas de Sheets pueden llegar como numero (p.ej. DNI): convertir a string
       const matchSearch =
-        record.descripcion.toLowerCase().includes(searchLower) ||
-        record.persona.toLowerCase().includes(searchLower) ||
-        record.dni.includes(searchLower) ||
-        record.categoria.toLowerCase().includes(searchLower) ||
-        record.observaciones.toLowerCase().includes(searchLower);
+        String(record.descripcion ?? '').toLowerCase().includes(searchLower) ||
+        String(record.persona ?? '').toLowerCase().includes(searchLower) ||
+        String(record.dni ?? '').includes(searchLower) ||
+        String(record.categoria ?? '').toLowerCase().includes(searchLower) ||
+        String(record.observaciones ?? '').toLowerCase().includes(searchLower);
       if (!matchSearch) return false;
     }
 

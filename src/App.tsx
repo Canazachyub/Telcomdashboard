@@ -11,6 +11,10 @@ import ReportesPage from './pages/ReportesPage';
 import ReportesObservadosPage from './pages/ReportesObservadosPage';
 import InventoryPage from './pages/InventoryPage';
 import RastreoPage from './pages/RastreoPage';
+import CruceJornadasPage from './pages/CruceJornadasPage';
+
+// Basename derivado de `base` en vite.config.ts ('/Telcomdashboard/' -> '/Telcomdashboard')
+const ROUTER_BASENAME = import.meta.env.BASE_URL.replace(/\/$/, '') || '/';
 
 // Componente para rutas protegidas
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -55,7 +59,7 @@ function SupervisorRoute({ children }: { children: React.ReactNode }) {
 
 function App() {
   return (
-    <BrowserRouter basename="/Telcomdashboard">
+    <BrowserRouter basename={ROUTER_BASENAME}>
       <Routes>
         {/* Ruta pública - Login */}
         <Route path="/login" element={<LoginPage />} />
@@ -85,6 +89,14 @@ function App() {
             element={
               <SupervisorRoute>
                 <ReportesPage />
+              </SupervisorRoute>
+            }
+          />
+          <Route
+            path="cruce"
+            element={
+              <SupervisorRoute>
+                <CruceJornadasPage />
               </SupervisorRoute>
             }
           />

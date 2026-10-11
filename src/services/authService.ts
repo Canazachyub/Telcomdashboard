@@ -2,6 +2,7 @@
 
 import { API_POINTS } from '../config/api';
 import type { User, LoginCredentials, AuthResponse } from '../types/user';
+import { normalizeRole } from '../stores/authStore';
 
 // Token expira en 24 horas (debe coincidir con backend)
 const TOKEN_EXPIRY_HOURS = 24;
@@ -77,7 +78,7 @@ export async function login(credentials: LoginCredentials): Promise<AuthResponse
     return {
       success: result.success,
       message: result.message,
-      user: result.user,
+      user: result.user ? { ...result.user, rol: normalizeRole(result.user.rol) } : result.user,
       token: result.token
     };
   } catch (error) {
@@ -98,7 +99,9 @@ export async function getUsers(token?: string): Promise<{ success: boolean; user
 
     return {
       success: result.success,
-      users: result.users,
+      users: Array.isArray(result.users)
+        ? result.users.map((u) => ({ ...u, rol: normalizeRole(u.rol) }))
+        : result.users,
       message: result.message
     };
   } catch (error) {

@@ -1,5 +1,6 @@
 import { buildPointsUrl } from './api';
 import type { InventoryRecord, InventorySheet } from '../types/inventory';
+import { downloadCsv } from '../utils/csv';
 
 /**
  * Obtiene la lista de hojas de inventario disponibles
@@ -59,36 +60,21 @@ export async function getInventory(sheetName: string): Promise<InventoryRecord[]
 export function exportInventoryToCSV(records: InventoryRecord[], sheetName: string): void {
   const headers = ['N°', 'Fecha', 'Hora', 'Tipo', 'Categoria', 'Descripcion', 'Cantidad', 'Persona', 'DNI', 'Estado', 'Observaciones', 'Foto'];
 
-  const escapeCSV = (value: string | number): string => {
-    const str = String(value);
-    if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-      return `"${str.replace(/"/g, '""')}"`;
-    }
-    return str;
-  };
-
   const rows = records.map(r => [
-    escapeCSV(r.numero),
-    escapeCSV(r.fecha),
-    escapeCSV(r.hora),
-    escapeCSV(r.tipo),
-    escapeCSV(r.categoria),
-    escapeCSV(r.descripcion),
-    escapeCSV(r.cantidad),
-    escapeCSV(r.persona),
-    escapeCSV(r.dni),
-    escapeCSV(r.estado),
-    escapeCSV(r.observaciones),
-    escapeCSV(r.fotoLink)
-  ].join(','));
+    r.numero,
+    r.fecha,
+    r.hora,
+    r.tipo,
+    r.categoria,
+    r.descripcion,
+    r.cantidad,
+    r.persona,
+    r.dni,
+    r.estado,
+    r.observaciones,
+    r.fotoLink
+  ]);
 
-  const BOM = '\uFEFF';
-  const csv = BOM + [headers.join(','), ...rows].join('\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `inventario_${sheetName}_${new Date().toISOString().split('T')[0]}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
+  // BOM + escapado + neutralizacion de formulas en el helper compartido
+  downloadCsv(`inventario_${sheetName}_${new Date().toISOString().split('T')[0]}.csv`, headers, rows);
 }

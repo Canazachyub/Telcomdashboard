@@ -1,3 +1,19 @@
+import { useSuministroDrawer } from '../stores/suministroDrawerStore';
+import TraerRegistroModal from '../components/map/TraerRegistroModal';
+import SospechososModal from '../components/map/SospechososModal';
+import { CompararCapa, CompararPanel, type Comparacion } from '../components/map/CompararCorreccion';
+import { confirmarCorreccion, correccionesDe, exportarCorrecciones, quitarCorreccion } from '../utils/correcciones';
+import { detectarSospechosos, esMalEscrito, posFoto } from '../utils/suministroCheck';
+import PhotoStrip from '../components/PhotoStrip';
+import { cargarJornadas, normSuministro, ocurrenciaDe, primeCache, puntosEnCache, type Ocurrencia } from '../services/suministroHistory';
+import { brandAsset } from '../config/brand';
+import TecnicoProgressPanel from '../components/map/TecnicoProgressPanel';
+import AssignAreaPanel from '../components/map/AssignAreaPanel';
+import { initialOf } from '../components/map/techUtils';
+import OutOfPeruModal from '../components/map/OutOfPeruModal';
+import { isInPeru } from '../utils/geo';
+import DailyCalendarPanel from '../components/map/DailyCalendarPanel';
+import { computeDailyProgress } from '../components/map/dailyProgress';
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap, FeatureGroup } from 'react-leaflet';
 import { EditControl } from 'react-leaflet-draw';
@@ -5,17 +21,18 @@ import { Icon, DivIcon, LatLngBounds, LatLng } from 'leaflet';
 import type { FeatureGroup as FeatureGroupType } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet-draw/dist/leaflet.draw.css';
+import '../components/map/drawLocale';
 import { usePointsStore, useFilters, useTecnicos, useDistritos, useSheetStructure, useIsTecnico } from '../stores/pointsStore';
 import { MAP_CONFIG } from '../config/api';
 import { getPointStatus, getStatusColor, getStatusLabel } from '../types/point';
-import type { GpsPoint, GpsPointExtended, PhotoLink } from '../types/point';
+import type { GpsPoint, GpsPointExtended } from '../types/point';
 import {
-  ExternalLink, Camera, MapPin, Filter, X, ChevronLeft, ChevronRight,
-  Maximize2, Search, Users, Building2, RotateCcw, Target, UserPlus, Pencil
+  Camera, MapPin, Filter, X,
+  Search, Users, Building2, RotateCcw, Target, Pencil, CalendarDays, History, Copy
 } from 'lucide-react';
-import { getDriveThumbnailUrl, getDriveViewUrl, extractDriveFileId } from '../utils/driveUtils';
-import { getTecnicos, assignTecnico } from '../services/tecnicoService';
-import type { User } from '../types/user';
+import PhotoGalleryModal from '../components/PhotoGalleryModal';
+import { safeHexColor, isValidHexColor } from '../utils/html';
+import { toNumberOrNull } from '../utils/format';
 
 // Fix para los iconos de Leaflet en Vite
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
@@ -50,7 +67,9 @@ function MapController({
 
       if (validPoints.length > 0) {
         const bounds = new LatLngBounds([]);
-        validPoints.forEach((p) => {
+        // Ignorar coordenadas fuera de Perú (signo invertido, 0,0, etc.) para no alejar el mapa
+        const enPeru = validPoints.filter((p) => isInPeru(p.latReal || p.latRef, p.longReal || p.longRef));
+        (enPeru.length > 0 ? enPeru : validPoints).forEach((p) => {
           const lat = p.latReal || p.latRef;
           const lng = p.longReal || p.longRef;
           if (lat && lng) {
@@ -70,242 +89,42 @@ function MapController({
 }
 
 // Crear marcador personalizado con color y tamaño configurable
-// Si odtColor está disponible, lo usa para el color interior con borde de estado
+// Si odtColor está disponible, lo usa para el color interior con borde de estado.
+// Los íconos se guardan en caché: con miles de puntos, recrearlos en cada render era lento.
+const iconCache = new Map<string, DivIcon>();
+
 function createCustomIcon(
   status: 'pendiente' | 'en_proceso' | 'completado',
   isHighlighted: boolean = false,
-  odtColor?: string | null
+  odtColor?: string | null,
+  letter: string = '',
+  hechoEnOtra: boolean = false,
+  sospechoso: boolean = false
 ) {
-  const statusColor = getStatusColor(status);
-  const size = isHighlighted ? 32 : 24;
-  const borderWidth = isHighlighted ? 4 : 3;
+  // SEGURIDAD: odtColor viene de la app movil y se interpola en HTML;
+  // solo se acepta un hex #RRGGBB estricto.
+  const hasOdtColor = isValidHexColor(odtColor);
+  const key = `${status}|${isHighlighted ? 1 : 0}|${hasOdtColor ? odtColor : ''}|${letter}|${hechoEnOtra ? 1 : 0}|${sospechoso ? 1 : 0}`;
+  const cached = iconCache.get(key);
+  if (cached) return cached;
 
-  // Si hay color ODT y el punto tiene foto, mostrar color del técnico
-  // con borde del color de estado
-  const hasOdtColor = odtColor && odtColor.startsWith('#');
-  const bgColor = hasOdtColor ? odtColor : statusColor;
-  const borderColor = isHighlighted ? '#2563eb' : (hasOdtColor ? statusColor : 'white');
+  const statusColor = safeHexColor(getStatusColor(status), '#ef4444');
+  const size = isHighlighted ? 28 : letter ? 20 : 16;
+  const bgColor = hasOdtColor ? safeHexColor(odtColor, statusColor) : statusColor;
+  const ring = isHighlighted ? '#00d4ff' : sospechoso ? '#c084fc' : hechoEnOtra ? '#fbbf24' : hasOdtColor ? statusColor : 'rgba(255,255,255,0.85)';
 
-  return new DivIcon({
-    html: `
-      <div style="
-        background-color: ${bgColor};
-        width: ${size}px;
-        height: ${size}px;
-        border-radius: 50%;
-        border: ${borderWidth}px solid ${borderColor};
-        box-shadow: 0 2px 8px rgba(0,0,0,${isHighlighted ? 0.5 : 0.3});
-        ${isHighlighted ? 'animation: pulse 1s infinite;' : ''}
-      "></div>
-    `,
+  const icon = new DivIcon({
+    html: `<div class="map-dot${isHighlighted ? ' map-dot--active' : ''}" style="
+        width:${size}px;height:${size}px;background:${bgColor};
+        border:${isHighlighted || hechoEnOtra || sospechoso ? 3 : 2}px ${hechoEnOtra && !isHighlighted ? 'dashed' : 'solid'} ${ring};
+        box-shadow:0 0 0 ${isHighlighted ? 4 : 2}px ${statusColor}33, 0 2px 6px rgba(0,0,0,.45);
+      ">${letter ? `<span class="map-dot__letter">${letter}</span>` : ''}</div>`,
     className: 'custom-marker',
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
   });
-}
-
-// Componente de imagen con fallback
-function DriveImage({
-  photo,
-  onClick
-}: {
-  photo: PhotoLink;
-  onClick: () => void;
-}) {
-  const [error, setError] = useState(false);
-  const [loading, setLoading] = useState(true);
-
-  const thumbnailUrl = getDriveThumbnailUrl(photo.url, 'w400');
-  const viewUrl = getDriveViewUrl(photo.url);
-
-  return (
-    <div
-      className="relative aspect-video bg-gray-100 rounded-lg overflow-hidden cursor-pointer group"
-      onClick={onClick}
-    >
-      {loading && (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
-        </div>
-      )}
-
-      {!error ? (
-        <img
-          src={thumbnailUrl}
-          alt={`Foto #${photo.numero}`}
-          className={`w-full h-full object-cover transition-opacity ${loading ? 'opacity-0' : 'opacity-100'}`}
-          onLoad={() => setLoading(false)}
-          onError={() => {
-            setError(true);
-            setLoading(false);
-          }}
-        />
-      ) : (
-        <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400">
-          <Camera size={32} />
-          <p className="text-xs mt-2">Vista previa no disponible</p>
-          <a
-            href={viewUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-2 text-xs text-primary-600 hover:underline"
-            onClick={(e) => e.stopPropagation()}
-          >
-            Abrir en Drive
-          </a>
-        </div>
-      )}
-
-      <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all flex items-center justify-center">
-        <Maximize2 className="text-white opacity-0 group-hover:opacity-100 transition-opacity" size={24} />
-      </div>
-
-      <div className="absolute top-2 left-2 bg-black bg-opacity-60 text-white text-xs px-2 py-1 rounded">
-        #{photo.numero}
-      </div>
-    </div>
-  );
-}
-
-// Modal para ver fotos con galería
-function PhotoModal({
-  point,
-  onClose,
-}: {
-  point: GpsPoint | GpsPointExtended | null;
-  onClose: () => void;
-}) {
-  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
-
-  if (!point) return null;
-
-  const photos = point.photoLinks;
-
-  const handlePrev = () => {
-    if (selectedIndex !== null && selectedIndex > 0) {
-      setSelectedIndex(selectedIndex - 1);
-    }
-  };
-
-  const handleNext = () => {
-    if (selectedIndex !== null && selectedIndex < photos.length - 1) {
-      setSelectedIndex(selectedIndex + 1);
-    }
-  };
-
-  if (selectedIndex !== null) {
-    const currentPhoto = photos[selectedIndex];
-    const fileId = extractDriveFileId(currentPhoto.url);
-    const previewUrl = fileId
-      ? `https://drive.google.com/file/d/${fileId}/preview`
-      : currentPhoto.url;
-
-    return (
-      <div className="fixed inset-0 bg-black z-[1000] flex flex-col">
-        <div className="flex items-center justify-between p-4 text-white">
-          <div>
-            <h3 className="font-semibold">Foto #{currentPhoto.numero}</h3>
-            <p className="text-sm text-gray-300">{currentPhoto.fecha}</p>
-          </div>
-          <div className="flex items-center gap-4">
-            <a
-              href={currentPhoto.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2 px-3 py-2 bg-white/20 rounded-lg hover:bg-white/30 transition-colors"
-            >
-              <ExternalLink size={16} />
-              Abrir original
-            </a>
-            <button
-              onClick={() => setSelectedIndex(null)}
-              className="p-2 hover:bg-white/20 rounded-lg transition-colors"
-            >
-              <X size={24} />
-            </button>
-          </div>
-        </div>
-
-        <div className="flex-1 flex items-center justify-center p-4 relative">
-          {selectedIndex > 0 && (
-            <button
-              onClick={handlePrev}
-              className="absolute left-4 z-10 p-3 bg-white/20 rounded-full hover:bg-white/30 transition-colors"
-            >
-              <ChevronLeft size={32} className="text-white" />
-            </button>
-          )}
-
-          <iframe
-            src={previewUrl}
-            title={`Foto #${currentPhoto.numero}`}
-            className="w-full h-full max-w-4xl max-h-[80vh] border-0 rounded-lg bg-gray-900"
-            allow="autoplay"
-          />
-
-          {selectedIndex < photos.length - 1 && (
-            <button
-              onClick={handleNext}
-              className="absolute right-4 z-10 p-3 bg-white/20 rounded-full hover:bg-white/30 transition-colors"
-            >
-              <ChevronRight size={32} className="text-white" />
-            </button>
-          )}
-        </div>
-
-        <div className="p-4 text-center text-white">
-          {selectedIndex + 1} / {photos.length}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 z-[1000] flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
-        <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-          <div>
-            <h3 className="text-lg font-semibold">
-              Fotos - Suministro {point.suministro}
-            </h3>
-            <p className="text-sm text-gray-500">{photos.length} foto(s)</p>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-          >
-            <X size={24} className="text-gray-500" />
-          </button>
-        </div>
-
-        <div className="p-4 overflow-y-auto max-h-[calc(90vh-80px)]">
-          {photos.length > 0 ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              {photos.map((photo, index) => (
-                <div key={index} className="space-y-2">
-                  <DriveImage
-                    photo={photo}
-                    onClick={() => setSelectedIndex(index)}
-                  />
-                  <div className="text-center">
-                    <p className="text-sm font-medium text-gray-900">
-                      Foto #{photo.numero}
-                    </p>
-                    <p className="text-xs text-gray-500">{photo.fecha}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-12 text-gray-500">
-              <Camera size={48} className="mx-auto mb-4 opacity-50" />
-              <p>No hay fotos disponibles</p>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
+  iconCache.set(key, icon);
+  return icon;
 }
 
 // Panel de filtros colapsable
@@ -507,171 +326,6 @@ function FilterPanel({
   );
 }
 
-// Modal para asignar técnico a los puntos seleccionados
-function AssignTecnicoModal({
-  isOpen,
-  onClose,
-  selectedPoints,
-  sheetName,
-  onAssignComplete,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  selectedPoints: (GpsPoint | GpsPointExtended)[];
-  sheetName: string;
-  onAssignComplete: () => void;
-}) {
-  const [tecnicos, setTecnicos] = useState<User[]>([]);
-  const [selectedTecnico, setSelectedTecnico] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [isLoadingTecnicos, setIsLoadingTecnicos] = useState(true);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-
-  useEffect(() => {
-    if (isOpen) {
-      loadTecnicos();
-      setError('');
-      setSuccess('');
-      setSelectedTecnico('');
-    }
-  }, [isOpen]);
-
-  const loadTecnicos = async () => {
-    setIsLoadingTecnicos(true);
-    const result = await getTecnicos();
-    if (result.success && result.tecnicos) {
-      setTecnicos(result.tecnicos);
-    } else {
-      setError('Error cargando técnicos');
-    }
-    setIsLoadingTecnicos(false);
-  };
-
-  const handleAssign = async () => {
-    if (!selectedTecnico) {
-      setError('Selecciona un técnico');
-      return;
-    }
-
-    setIsLoading(true);
-    setError('');
-
-    const suministros = selectedPoints.map(p => p.suministro);
-    const result = await assignTecnico(sheetName, suministros, selectedTecnico);
-
-    if (result.success) {
-      setSuccess(`Se asignaron ${result.updated} puntos a ${selectedTecnico}`);
-      setTimeout(() => {
-        onAssignComplete();
-        onClose();
-      }, 1500);
-    } else {
-      setError(result.message || 'Error al asignar técnico');
-    }
-
-    setIsLoading(false);
-  };
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 z-[1000] flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl max-w-md w-full overflow-hidden shadow-2xl">
-        <div className="p-4 border-b border-gray-200 flex items-center justify-between bg-blue-600 text-white">
-          <div className="flex items-center gap-2">
-            <UserPlus size={24} />
-            <h3 className="text-lg font-semibold">Asignar Técnico</h3>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1 hover:bg-blue-700 rounded transition-colors"
-          >
-            <X size={20} />
-          </button>
-        </div>
-
-        <div className="p-6 space-y-4">
-          {/* Info de puntos seleccionados */}
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <p className="text-sm text-blue-800">
-              <span className="font-semibold">{selectedPoints.length}</span> puntos seleccionados para asignar
-            </p>
-          </div>
-
-          {/* Selector de técnico */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Seleccionar Técnico
-            </label>
-            {isLoadingTecnicos ? (
-              <div className="flex items-center justify-center py-4">
-                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-              </div>
-            ) : tecnicos.length > 0 ? (
-              <select
-                value={selectedTecnico}
-                onChange={(e) => setSelectedTecnico(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="">-- Seleccionar técnico --</option>
-                {tecnicos.map((tec) => (
-                  <option key={tec.id || tec.email} value={tec.nombre}>
-                    {tec.nombre} ({tec.email})
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <div className="text-center py-4 text-gray-500">
-                <Users size={32} className="mx-auto mb-2 opacity-50" />
-                <p className="text-sm">No hay técnicos registrados</p>
-                <p className="text-xs mt-1">Agrega usuarios con rol TECNICO</p>
-              </div>
-            )}
-          </div>
-
-          {/* Mensajes de error/éxito */}
-          {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
-              {error}
-            </div>
-          )}
-
-          {success && (
-            <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm">
-              {success}
-            </div>
-          )}
-
-          {/* Botones */}
-          <div className="flex gap-3 pt-2">
-            <button
-              onClick={onClose}
-              className="flex-1 px-4 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              Cancelar
-            </button>
-            <button
-              onClick={handleAssign}
-              disabled={isLoading || !selectedTecnico || tecnicos.length === 0}
-              className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              {isLoading ? (
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-              ) : (
-                <>
-                  <UserPlus size={18} />
-                  Asignar
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function MapPage() {
   // Store data
   const {
@@ -682,6 +336,7 @@ export default function MapPage() {
     setFilter: setStoreFilter,
     resetFilters: resetStoreFilters,
     loadPointsExtended,
+    pointsExtended,
   } = usePointsStore();
   const storeFilters = useFilters();
   const tecnicos = useTecnicos();
@@ -700,6 +355,19 @@ export default function MapPage() {
   const [isDrawingMode, setIsDrawingMode] = useState(false);
   const [selectedPointsForAssign, setSelectedPointsForAssign] = useState<(GpsPoint | GpsPointExtended)[]>([]);
   const [showAssignModal, setShowAssignModal] = useState(false);
+  const openFicha = useSuministroDrawer((st) => st.open);
+  const [showOutOfPeru, setShowOutOfPeru] = useState(false);
+  const [showDaily, setShowDaily] = useState(false);
+  // Suministros hechos en OTRAS jornadas (para detectar pendientes ya resueltos)
+  const { sheets } = usePointsStore();
+  const [otras, setOtras] = useState<Map<string, Ocurrencia[]> | null>(null);
+  const [otrasProgreso, setOtrasProgreso] = useState<{ hechas: number; total: number } | null>(null);
+  const [traer, setTraer] = useState<Ocurrencia[] | null>(null);
+  const [showSospechosos, setShowSospechosos] = useState(false);
+  const [comp, setComp] = useState<Comparacion | null>(null);
+  const [verCorr, setVerCorr] = useState(0); // fuerza releer las correcciones guardadas
+  const [dayFilter, setDayFilter] = useState<string | null>(null);
+  const [drawnLayer, setDrawnLayer] = useState<{ remove: () => void } | null>(null);
   const featureGroupRef = useRef<FeatureGroupType | null>(null);
 
   // Local filters (synced with store)
@@ -754,6 +422,54 @@ export default function MapPage() {
     );
   }, [filteredPoints]);
 
+  // Suministros posiblemente mal escritos por el técnico (letras, largo raro, no existen en la lista)
+  const sospechosos = useMemo(() => {
+    // Si ya se revisaron otras jornadas, sus listas también sirven como candidatos
+    const externos = otras
+      ? sheets
+          .map((sh) => sh.name)
+          .filter((n) => n !== selectedSheet)
+          .flatMap((n) => (puntosEnCache(n) || []).map((point) => ({ jornada: n, point })))
+      : [];
+    return detectarSospechosos(filteredPoints, externos);
+  }, [filteredPoints, otras, sheets, selectedSheet]);
+  const malEscritos = useMemo(() => sospechosos.filter(esMalEscrito), [sospechosos]);
+  const fueraDeLista = sospechosos.length - malEscritos.length;
+  const correcciones = useMemo(
+    () => (selectedSheet && verCorr >= 0 ? correccionesDe(selectedSheet) : []),
+    [selectedSheet, verCorr]
+  );
+  const volverALista = () => {
+    setComp(null);
+    setShowSospechosos(true);
+  };
+  const confirmarComp = () => {
+    if (!comp || !selectedSheet) return;
+    const sg = comp.item.sugerencias[comp.indice];
+    const pos = posFoto(comp.item.point);
+    const pt = comp.item.point as GpsPointExtended;
+    confirmarCorreccion({
+      jornada: selectedSheet,
+      original: String(pt.suministro),
+      corregido: String(sg.point.suministro),
+      origenSugerencia: sg.jornada,
+      tecnico: pt.odtNombre || pt.tecnico || '',
+      lat: pos?.[0] ?? null,
+      lng: pos?.[1] ?? null,
+      distancia: sg.distancia,
+      fecha: new Date().toISOString(),
+    });
+    setVerCorr((v) => v + 1);
+    volverALista();
+  };
+  // Solo los errores de digitación se marcan en el mapa; los códigos válidos fuera de la lista no
+  const sospechososSet = useMemo(() => new Set(malEscritos.map((x) => x.point)), [malEscritos]);
+
+  const fueraDePeru = useMemo(
+    () => visiblePoints.filter((p) => !isInPeru(p.latReal || p.latRef, p.longReal || p.longRef)).length,
+    [visiblePoints]
+  );
+
   // Compute stats for visible points
   const visibleStats = useMemo(() => {
     const total = visiblePoints.length;
@@ -786,17 +502,15 @@ export default function MapPage() {
       return isPointInPolygon({ lat, lng }, drawnShape);
     });
 
+    setIsDrawingMode(false);
     if (pointsInside.length > 0) {
+      // El área queda dibujada mientras el panel de asignación está abierto
+      setDrawnLayer(layer);
       setSelectedPointsForAssign(pointsInside);
       setShowAssignModal(true);
-    }
-
-    // Clear the drawn shape after processing
-    if (featureGroupRef.current) {
+    } else if (featureGroupRef.current) {
       featureGroupRef.current.clearLayers();
     }
-
-    setIsDrawingMode(false);
   };
 
   // Check if a point is inside a polygon using ray casting algorithm
@@ -825,6 +539,69 @@ export default function MapPage() {
     setSelectedPointsForAssign([]);
   };
 
+  const closeAssignPanel = () => {
+    setShowAssignModal(false);
+    setSelectedPointsForAssign([]);
+    drawnLayer?.remove();
+    setDrawnLayer(null);
+    featureGroupRef.current?.clearLayers();
+  };
+
+  // Puntos de toda la jornada con coordenadas (para el avance por técnico)
+  const allMapPoints = useMemo(
+    () => (pointsExtended.length ? pointsExtended : filteredPoints).filter(
+      (p) => (p.latReal && p.longReal) || (p.latRef && p.longRef)
+    ),
+    [pointsExtended, filteredPoints]
+  );
+
+  // Día de la primera foto de cada punto (para el filtro por día)
+  const firstDay = useMemo(() => computeDailyProgress(allMapPoints).firstDay, [allMapPoints]);
+  // Con un día elegido se muestran los puntos avanzados ese día y, siempre, los pendientes
+  const dayCount = useMemo(
+    () => (dayFilter ? visiblePoints.filter((p) => firstDay.get(p.suministro) === dayFilter).length : 0),
+    [visiblePoints, dayFilter, firstDay]
+  );
+  const displayPoints = useMemo(
+    () =>
+      dayFilter
+        ? visiblePoints.filter(
+            (p) => firstDay.get(p.suministro) === dayFilter || getPointStatus(p) === 'pendiente'
+          )
+        : visiblePoints,
+    [visiblePoints, dayFilter, firstDay]
+  );
+  const dayFilterLabel = dayFilter
+    ? new Date(`${dayFilter}T12:00:00`).toLocaleDateString('es-PE', { weekday: 'short', day: 'numeric', month: 'short' })
+    : '';
+
+  // Revisa las demás jornadas y guarda, por suministro, dónde ya tiene fotos
+  const verificarOtras = async () => {
+    if (otrasProgreso) return;
+    if (selectedSheet && pointsExtended.length) primeCache(selectedSheet, pointsExtended);
+    const nombres = sheets.map((sh) => sh.name).filter((n) => n !== selectedSheet);
+    setOtrasProgreso({ hechas: 0, total: nombres.length });
+    const res = await cargarJornadas(nombres, (hechas, total) => setOtrasProgreso({ hechas, total }));
+    const idx = new Map<string, Ocurrencia[]>();
+    res.forEach((pts, jornada) =>
+      pts.forEach((pt) => {
+        if (getPointStatus(pt) === 'pendiente' || !(pt.photoLinks?.length)) return;
+        const k = normSuministro(pt.suministro);
+        const arr = idx.get(k) || [];
+        arr.push(ocurrenciaDe(jornada, pt));
+        idx.set(k, arr);
+      })
+    );
+    idx.forEach((arr) => arr.sort((a, b) => (b.ultimaFoto?.getTime() ?? 0) - (a.ultimaFoto?.getTime() ?? 0)));
+    setOtras(idx);
+    setOtrasProgreso(null);
+  };
+  const hechosEnOtra = (sum: string) => otras?.get(normSuministro(sum)) || null;
+  const pendientesYaHechos = useMemo(
+    () => (otras ? visiblePoints.filter((pt) => getPointStatus(pt) === 'pendiente' && otras.has(normSuministro(pt.suministro))).length : 0),
+    [otras, visiblePoints]
+  );
+
   // Handle assignment complete - refresh data
   const handleAssignComplete = () => {
     setSelectedPointsForAssign([]);
@@ -837,47 +614,134 @@ export default function MapPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
       </div>
     );
   }
 
   return (
-    <div className="h-[calc(100vh-120px)] flex flex-col">
+    <div className="flex h-[calc(100vh-112px)] min-h-[520px] flex-col">
       {/* Header del mapa */}
-      <div className="bg-white rounded-t-xl border border-gray-200 p-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-            <MapPin className="text-primary-600" />
+      <div className="flex flex-col gap-3 rounded-t-2xl border border-gray-200 bg-white p-4 xl:flex-row xl:items-center xl:justify-between">
+        <div className="min-w-0 flex-1">
+          <p className="brand-kicker">Mapa operativo</p>
+          <h1 className="mt-0.5 flex items-center gap-2 text-xl font-bold text-gray-900">
+            <MapPin className="text-electric" size={20} />
             Mapa de Asignaciones
           </h1>
           <p className="text-sm text-gray-500">
             {selectedSheet
-              ? `${visiblePoints.length} puntos con coordenadas de ${filteredPoints.length} filtrados`
+              ? `${visiblePoints.length.toLocaleString('es-PE')} puntos con coordenadas de ${filteredPoints.length.toLocaleString('es-PE')} filtrados`
               : 'Selecciona una jornada'}
+            {dayFilter && (
+              <button
+                onClick={() => {
+                  setDayFilter(null);
+                  setAutoFit(true);
+                }}
+                className="ml-2 inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[11px] text-blue-800 hover:bg-blue-100"
+                title="Quitar filtro por día"
+              >
+                Avance del {dayFilterLabel}: {dayCount} puntos (+ pendientes) <X size={11} />
+              </button>
+            )}
+            {malEscritos.length > 0 && (
+              <button
+                onClick={() => setShowSospechosos(true)}
+                className="ml-2 inline-flex items-center rounded-md border border-purple-200 bg-purple-50 px-1.5 py-0.5 text-[11px] text-purple-800 hover:bg-purple-100"
+                title="Suministros con letras o con un largo distinto al habitual"
+              >
+                {malEscritos.length} suministro{malEscritos.length === 1 ? '' : 's'} mal escrito{malEscritos.length === 1 ? '' : 's'} · revisar
+              </button>
+            )}
+            {fueraDeLista > 0 && (
+              <button
+                onClick={() => setShowSospechosos(true)}
+                className="ml-2 inline-flex items-center rounded-md border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[11px] text-gray-700 hover:bg-gray-100"
+                title="Códigos válidos fotografiados que no están en la lista de esta jornada"
+              >
+                {fueraDeLista} fuera de la lista
+              </button>
+            )}
+            {fueraDePeru > 0 && (
+              <button
+                onClick={() => setShowOutOfPeru(true)}
+                className="ml-2 inline-flex items-center rounded-md border border-yellow-200 bg-yellow-50 px-1.5 py-0.5 text-[11px] text-yellow-800 hover:bg-yellow-100"
+                title="Ver y exportar los puntos con coordenadas fuera de Perú"
+              >
+                {fueraDePeru} con coordenadas fuera de Perú · revisar
+              </button>
+            )}
           </p>
         </div>
 
-        {/* Stats rápidas */}
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-3 px-4 py-2 bg-gray-50 rounded-lg">
-            <div className="flex items-center gap-1">
-              <div className="w-3 h-3 rounded-full bg-red-500"></div>
-              <span className="text-sm font-medium">{visibleStats.pendientes}</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
-              <span className="text-sm font-medium">{visibleStats.enProceso}</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <div className="w-3 h-3 rounded-full bg-green-500"></div>
-              <span className="text-sm font-medium">{visibleStats.completados}</span>
-            </div>
+        <div className="flex flex-wrap items-center gap-2 xl:flex-nowrap xl:justify-end">
+          {/* Stats rápidas */}
+          <div className="flex flex-wrap items-center gap-1 rounded-xl border border-gray-200 bg-gray-50 p-1">
+            {[
+              { label: 'Pendiente', value: visibleStats.pendientes, color: 'bg-red-500' },
+              { label: 'En proceso', value: visibleStats.enProceso, color: 'bg-yellow-500' },
+              { label: 'Completado', value: visibleStats.completados, color: 'bg-green-500' },
+            ].map((st) => (
+              <div key={st.label} className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5">
+                <span className={`h-2.5 w-2.5 rounded-full ${st.color}`} />
+                <span className="hidden text-xs text-gray-500 sm:inline">{st.label}</span>
+                <span className="font-mono text-sm font-semibold text-gray-900">{st.value.toLocaleString('es-PE')}</span>
+              </div>
+            ))}
           </div>
+
+          {visibleStats.total > 0 && (
+            <div className="hidden w-32 shrink-0 2xl:block">
+              <div className="flex justify-between text-[11px] text-gray-500">
+                <span>Avance</span>
+                <span className="font-mono text-gray-700">
+                  {((visibleStats.completados / visibleStats.total) * 100).toFixed(1)}%
+                </span>
+              </div>
+              <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-gray-200">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-green-500 to-electric"
+                  style={{ width: `${(visibleStats.completados / visibleStats.total) * 100}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          <button
+            onClick={verificarOtras}
+            disabled={!!otrasProgreso || !selectedSheet}
+            className={`flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors disabled:opacity-60 ${
+              otras ? 'border-energy/60 text-energy' : 'border-gray-300 text-gray-700 hover:border-electric hover:text-electric'
+            }`}
+            title="Detectar pendientes de esta jornada que ya se hicieron en otra"
+          >
+            <History size={16} className={otrasProgreso ? 'animate-spin' : ''} />
+            {otrasProgreso
+              ? `Revisando ${otrasProgreso.hechas}/${otrasProgreso.total}`
+              : otras
+              ? `${pendientesYaHechos} ya hechos en otra`
+              : 'Hechos en otras jornadas'}
+          </button>
+
+          <button
+            onClick={() => {
+              if (showDaily) setDayFilter(null);
+              setShowDaily((v) => !v);
+              setShowAssignModal(false);
+            }}
+            className={`flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors ${
+              showDaily ? 'border-electric text-electric' : 'border-gray-300 text-gray-700 hover:border-electric hover:text-electric'
+            }`}
+            title="Avance por día y por técnico"
+          >
+            <CalendarDays size={16} />
+            Avance diario
+          </button>
 
           <button
             onClick={handleCenterOnPoints}
-            className="flex items-center gap-2 px-3 py-2 text-sm bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors"
+            className="flex shrink-0 items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 transition-colors hover:border-electric hover:text-electric"
             title="Centrar en puntos"
           >
             <Target size={16} />
@@ -888,22 +752,33 @@ export default function MapPage() {
           {!isTecnico && (
             <button
               onClick={toggleDrawingMode}
-              className={`flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors ${
+              className={`flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${
                 isDrawingMode
-                  ? 'bg-green-600 text-white hover:bg-green-700'
-                  : 'bg-green-50 text-green-700 hover:bg-green-100'
+                  ? 'bg-green-500 text-white shadow-[0_0_0_3px_rgb(16_185_129/0.25)]'
+                  : 'bg-blue-600 text-white hover:brightness-110'
               }`}
               title="Dibujar area para asignar tecnico"
             >
               <Pencil size={16} />
-              {isDrawingMode ? 'Dibujando...' : 'Asignar'}
+              {isDrawingMode ? 'Dibujando…' : 'Asignar área'}
             </button>
           )}
         </div>
       </div>
 
       {/* Contenedor del mapa */}
-      <div className="flex-1 border-x border-b border-gray-200 rounded-b-xl overflow-hidden relative">
+      <div className="hud-corners relative flex-1 overflow-hidden rounded-b-2xl border-x border-b border-gray-200">
+        {comp && (
+          <CompararPanel
+            comp={comp}
+            onConfirmar={confirmarComp}
+            onSiguiente={() =>
+              comp.indice + 1 < comp.item.sugerencias.length ? setComp({ ...comp, indice: comp.indice + 1 }) : volverALista()
+            }
+            onVolver={volverALista}
+            onCerrar={() => setComp(null)}
+          />
+        )}
         <MapContainer
           center={MAP_CONFIG.defaultCenter}
           zoom={MAP_CONFIG.defaultZoom}
@@ -914,10 +789,11 @@ export default function MapPage() {
             url={MAP_CONFIG.tileUrl}
           />
           <MapController
-            points={visiblePoints}
+            points={displayPoints}
             autoFit={autoFit}
             onAutoFitDone={() => setAutoFit(false)}
           />
+          {comp && <CompararCapa comp={comp} />}
 
           {/* Drawing controls - Solo rectángulo para mayor velocidad */}
           <FeatureGroup ref={featureGroupRef}>
@@ -931,14 +807,23 @@ export default function MapPage() {
                   polygon: {
                     allowIntersection: false,
                     showArea: false,
-                    maxPoints: 5,
                     shapeOptions: {
-                      color: '#22c55e',
+                      color: '#00d4ff',
                       weight: 2,
-                      fillOpacity: 0.2,
+                      dashArray: '6 6',
+                      fillColor: '#2563eb',
+                      fillOpacity: 0.15,
                     },
                   },
-                  rectangle: false,
+                  rectangle: {
+                    shapeOptions: {
+                      color: '#00d4ff',
+                      weight: 2,
+                      dashArray: '6 6',
+                      fillColor: '#2563eb',
+                      fillOpacity: 0.15,
+                    },
+                  },
                   circle: false,
                   marker: false,
                   circlemarker: false,
@@ -951,16 +836,20 @@ export default function MapPage() {
             )}
           </FeatureGroup>
 
-          {visiblePoints.map((point, index) => {
-            const lat = point.latReal || point.latRef;
-            const lng = point.longReal || point.longRef;
+          {displayPoints.map((point, index) => {
+            const lat = toNumberOrNull(point.latReal) || toNumberOrNull(point.latRef);
+            const lng = toNumberOrNull(point.longReal) || toNumberOrNull(point.longRef);
             if (!lat || !lng) return null;
 
             const status = getPointStatus(point);
             const isHighlighted = highlightedPointId === point.suministro;
             const extPoint = point as GpsPointExtended;
             // Usar color ODT si está disponible (técnico que tomó la foto)
-            const icon = createCustomIcon(status, isHighlighted, extPoint.odtColor);
+            // Letra del técnico que tomó la foto (solo si el punto ya tiene foto)
+            const letter = status !== 'pendiente' ? initialOf(extPoint.odtNombre) : '';
+            const yaHecho = status === 'pendiente' && !!hechosEnOtra(point.suministro);
+            const esSospechoso = sospechososSet.has(point);
+            const icon = createCustomIcon(status, isHighlighted, extPoint.odtColor, letter, yaHecho, esSospechoso);
 
             return (
               <Marker
@@ -972,85 +861,136 @@ export default function MapPage() {
                 }}
               >
                 <Popup>
-                  <div className="min-w-[220px]">
-                    <h3 className="font-bold text-gray-900 mb-2">
-                      {point.suministro}
-                    </h3>
-
-                    {extPoint.tecnico && (
-                      <p className="text-sm mb-1">
-                        <span className="text-gray-500">Tecnico:</span>{' '}
-                        <span className="font-medium">{extPoint.tecnico}</span>
-                      </p>
-                    )}
-
-                    {extPoint.codigoRuta && (
-                      <p className="text-sm mb-1">
-                        <span className="text-gray-500">Código Ruta:</span>{' '}
-                        <span className="font-medium">{extPoint.codigoRuta}</span>
-                      </p>
-                    )}
-
-                    {extPoint.serie && (
-                      <p className="text-sm mb-2">
-                        <span className="text-gray-500">Serie:</span>{' '}
-                        <span className="font-medium">{extPoint.serie}</span>
-                      </p>
-                    )}
-
-                    <div className="space-y-1 text-sm">
-                      <p>
-                        <span className="text-gray-500">Estado:</span>{' '}
-                        <span
-                          className={`font-medium ${
-                            status === 'completado'
-                              ? 'text-green-600'
-                              : status === 'en_proceso'
-                              ? 'text-yellow-600'
-                              : 'text-red-600'
-                          }`}
-                        >
-                          {getStatusLabel(status)}
-                        </span>
-                      </p>
-                      <p>
-                        <span className="text-gray-500">Fotos:</span>{' '}
-                        <span className="font-medium">{point.photoCount}</span>
-                      </p>
-
-                      {extPoint.odtNombre && (
-                        <p className="flex items-center gap-1">
-                          <span className="text-gray-500">Fotografo:</span>{' '}
-                          <span
-                            className="w-3 h-3 rounded-full inline-block"
-                            style={{ backgroundColor: extPoint.odtColor || '#888' }}
-                          ></span>
-                          <span className="font-medium">{extPoint.odtNombre}</span>
-                        </p>
-                      )}
-
-                      {extPoint.distrito && (
-                        <p>
-                          <span className="text-gray-500">Distrito:</span>{' '}
-                          <span className="font-medium">{extPoint.distrito}</span>
-                        </p>
-                      )}
-
-                      <p>
-                        <span className="text-gray-500">Coordenadas:</span>{' '}
-                        <span className="font-mono text-xs">
-                          {lat.toFixed(6)}, {lng.toFixed(6)}
-                        </span>
-                      </p>
+                  <div className="min-w-[240px]">
+                    <div className="mb-3 flex items-start justify-between gap-3 border-b border-gray-200 pb-2">
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wider text-gray-500">Suministro</p>
+                        <h3 className="font-mono text-base font-semibold text-gray-900">{point.suministro}</h3>
+                      </div>
+                      <span
+                        className={`mt-1 rounded-md px-2 py-0.5 text-[11px] font-semibold ${
+                          status === 'completado'
+                            ? 'bg-green-100 text-green-800'
+                            : status === 'en_proceso'
+                            ? 'bg-yellow-100 text-yellow-800'
+                            : 'bg-red-100 text-red-800'
+                        }`}
+                      >
+                        {getStatusLabel(status)}
+                      </span>
                     </div>
 
+                    <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[13px]">
+                      {extPoint.tecnico && (
+                        <>
+                          <dt className="text-gray-500">Técnico</dt>
+                          <dd className="font-medium text-gray-900">{extPoint.tecnico}</dd>
+                        </>
+                      )}
+                      {extPoint.codigoRuta && (
+                        <>
+                          <dt className="text-gray-500">Código ruta</dt>
+                          <dd className="font-mono text-gray-900">{extPoint.codigoRuta}</dd>
+                        </>
+                      )}
+                      {extPoint.serie && (
+                        <>
+                          <dt className="text-gray-500">Serie</dt>
+                          <dd className="font-mono text-gray-900">{extPoint.serie}</dd>
+                        </>
+                      )}
+                      {extPoint.distrito && (
+                        <>
+                          <dt className="text-gray-500">Distrito</dt>
+                          <dd className="text-gray-900">{extPoint.distrito}</dd>
+                        </>
+                      )}
+                      <dt className="text-gray-500">Fotos</dt>
+                      <dd className="text-gray-900">{point.photoCount}</dd>
+                      {extPoint.odtNombre && (
+                        <>
+                          <dt className="text-gray-500">Fotógrafo</dt>
+                          <dd className="flex items-center gap-1.5 text-gray-900">
+                            <span
+                              className="inline-block h-2.5 w-2.5 rounded-full"
+                              style={{ backgroundColor: safeHexColor(extPoint.odtColor, '#888888') }}
+                            />
+                            {extPoint.odtNombre}
+                          </dd>
+                        </>
+                      )}
+                      <dt className="text-gray-500">Coordenadas</dt>
+                      <dd className="font-mono text-xs text-gray-700">
+                        {lat.toFixed(6)}, {lng.toFixed(6)}
+                      </dd>
+                    </dl>
+
+                    {esSospechoso && (
+                      <button
+                        onClick={() => setShowSospechosos(true)}
+                        className="mt-3 w-full rounded-xl border border-purple-200 bg-purple-50 p-2.5 text-left text-xs text-purple-800 hover:bg-purple-100"
+                      >
+                        <span className="font-semibold">Suministro posiblemente mal escrito.</span> Ver sugerencia del código correcto →
+                      </button>
+                    )}
+                    {status === 'pendiente' && (() => {
+                      const oc = hechosEnOtra(point.suministro);
+                      if (!otras) {
+                        return (
+                          <button
+                            onClick={verificarOtras}
+                            disabled={!!otrasProgreso}
+                            className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-energy/60 px-3 py-2 text-xs text-energy hover:bg-amber-50"
+                          >
+                            <History size={13} />
+                            {otrasProgreso ? `Revisando jornadas ${otrasProgreso.hechas}/${otrasProgreso.total}…` : '¿Ya se hizo en otra jornada? Verificar'}
+                          </button>
+                        );
+                      }
+                      if (!oc) {
+                        return <p className="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">No tiene fotos en otras jornadas.</p>;
+                      }
+                      const o = oc[0];
+                      return (
+                        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-2.5 text-xs">
+                          <p className="font-semibold text-amber-800">
+                            Ya se hizo en {oc.length === 1 ? 'otra jornada' : `${oc.length} jornadas`}
+                          </p>
+                          <p className="mt-0.5 truncate text-gray-700" title={o.jornada}>
+                            {o.jornada}
+                          </p>
+                          <p className="text-gray-600">
+                            {o.ultimaFoto?.toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' }) || '—'} ·{' '}
+                            {o.trabajadores.join(', ') || '—'} · {o.fotos} fotos
+                            {o.lectura != null && o.lectura !== '' && ` · lectura ${o.lectura}`}
+                          </p>
+                          <div className="mt-2">
+                            <PhotoStrip photos={o.point.photoLinks || []} max={4} size={40} onOpen={() => openFicha(o.point, o.jornada)} />
+                          </div>
+                          {!isTecnico && (
+                            <button
+                              onClick={() => setTraer(oc)}
+                              className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:brightness-110"
+                            >
+                              <Copy size={13} /> Traer a esta jornada
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })()}
+                    <button
+                      onClick={() => openFicha(point, selectedSheet)}
+                      className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:border-electric hover:text-electric"
+                    >
+                      Ficha e historial
+                    </button>
                     {point.photoCount > 0 && (
                       <button
                         onClick={() => setSelectedPoint(point)}
-                        className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
+                        className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:brightness-110"
                       >
                         <Camera size={14} />
-                        Ver Fotos ({point.photoCount})
+                        Ver fotos ({point.photoCount})
                       </button>
                     )}
                   </div>
@@ -1076,32 +1016,89 @@ export default function MapPage() {
           isTecnico={isTecnico}
         />
 
-        {/* Leyenda */}
-        <div className="absolute bottom-4 left-4 bg-white rounded-lg shadow-lg p-3 z-[500]">
-          <p className="text-xs font-medium text-gray-700 mb-2">Leyenda</p>
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-red-500"></div>
-              <span className="text-xs text-gray-600">Pendiente</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
-              <span className="text-xs text-gray-600">En Proceso</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-green-500"></div>
-              <span className="text-xs text-gray-600">Completado</span>
-            </div>
+        {/* Ayuda mientras se dibuja */}
+        {isDrawingMode && (
+          <div className="absolute left-1/2 top-4 z-[600] -translate-x-1/2 rounded-xl border border-electric/40 bg-navy-900/95 px-4 py-2.5 text-center text-sm text-gray-800 shadow-xl backdrop-blur">
+            Dibuja un <b>polígono</b> o <b>rectángulo</b> (botones de la izquierda) alrededor de los puntos a asignar
           </div>
+        )}
+
+        {/* Calendario de avance diario */}
+        {showDaily && !showAssignModal && (
+          <DailyCalendarPanel
+            points={allMapPoints}
+            sheetName={selectedSheet || ''}
+            selectedDay={dayFilter}
+            onSelectDay={(k) => {
+              setDayFilter(k);
+              setAutoFit(true);
+            }}
+            onClose={() => {
+              // Al cerrar el calendario se quita el filtro por día
+              setShowDaily(false);
+              setDayFilter(null);
+              setAutoFit(true);
+            }}
+          />
+        )}
+
+        {/* Avance por técnico (clic = filtrar) */}
+        {!showAssignModal && !filterPanelOpen && !showDaily && (
+          <TecnicoProgressPanel
+            points={allMapPoints}
+            activeTecnico={localFilters.tecnico}
+            onSelectTecnico={(n) => handleLocalFilterChange('tecnico', n)}
+          />
+        )}
+
+        {/* Panel de asignación del área dibujada */}
+        {showAssignModal && (
+          <AssignAreaPanel
+            areaPoints={selectedPointsForAssign}
+            allPoints={allMapPoints}
+            sheetName={selectedSheet || ''}
+            onClose={closeAssignPanel}
+            onAssignComplete={handleAssignComplete}
+          />
+        )}
+
+        {/* Leyenda */}
+        <div className="absolute bottom-4 left-4 z-[500] rounded-xl border border-gray-200 bg-navy-900/90 p-3 shadow-lg backdrop-blur">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500">Leyenda</p>
+          <div className="space-y-1.5">
+            {[
+              { label: 'Pendiente', color: 'bg-red-500' },
+              { label: 'En proceso', color: 'bg-yellow-500' },
+              { label: 'Completado', color: 'bg-green-500' },
+            ].map((l) => (
+              <div key={l.label} className="flex items-center gap-2">
+                <span className={`h-3 w-3 rounded-full border-2 border-white/80 ${l.color}`} />
+                <span className="text-xs text-gray-700">{l.label}</span>
+              </div>
+            ))}
+          </div>
+          <p className="mt-2 max-w-[180px] border-t border-gray-200 pt-2 text-[11px] leading-snug text-gray-500">
+            Con foto, el relleno y la letra indican el técnico que la tomó.
+            {malEscritos.length > 0 && (
+              <span className="mt-1 flex items-center gap-1.5">
+                <span className="h-3 w-3 rounded-full border-2 border-purple-400 bg-green-500" /> Suministro posiblemente mal escrito
+              </span>
+            )}
+            {otras && (
+              <span className="mt-1 flex items-center gap-1.5">
+                <span className="h-3 w-3 rounded-full border-2 border-dashed border-energy bg-red-500" /> Pendiente ya hecho en otra jornada
+              </span>
+            )}
+          </p>
         </div>
 
         {/* Indicador cuando no hay puntos */}
         {visiblePoints.length === 0 && filteredPoints.length > 0 && (
-          <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-[400]">
-            <div className="text-center p-6 bg-white rounded-xl shadow-lg">
-              <MapPin size={48} className="mx-auto mb-4 text-gray-400" />
-              <h3 className="font-semibold text-gray-700 mb-2">Sin coordenadas</h3>
-              <p className="text-sm text-gray-500 max-w-xs">
+          <div className="absolute inset-0 z-[400] flex items-center justify-center bg-navy-950/70 backdrop-blur-sm">
+            <div className="max-w-sm rounded-2xl border border-gray-200 bg-white p-6 text-center shadow-2xl">
+              <img src={brandAsset('icon-mapa.webp')} alt="" className="mx-auto mb-3 h-28 w-28" />
+              <h3 className="mb-2 font-semibold text-gray-900">Sin coordenadas</h3>
+              <p className="text-sm text-gray-500">
                 Los {filteredPoints.length} puntos filtrados no tienen coordenadas GPS.
                 Verifica que las columnas LAT_REF/LONG_REF esten configuradas.
               </p>
@@ -1110,61 +1107,93 @@ export default function MapPage() {
         )}
       </div>
 
-      {/* Modal de fotos */}
-      {selectedPoint && (
-        <PhotoModal point={selectedPoint} onClose={() => setSelectedPoint(null)} />
+      {showSospechosos && (
+        <SospechososModal
+          jornada={selectedSheet || ''}
+          items={sospechosos}
+          onClose={() => setShowSospechosos(false)}
+          onVerEnMapa={(sum) => {
+            setShowSospechosos(false);
+            setHighlightedPointId(sum);
+            handleSearchChange(sum);
+          }}
+          onFicha={(pt) => openFicha(pt, selectedSheet)}
+          onComparar={(item, indice) => {
+            setShowSospechosos(false);
+            setComp({ item, indice });
+          }}
+          correcciones={correcciones}
+          onDeshacer={(c) => {
+            quitarCorreccion(c.jornada, c.original, c.lat, c.lng);
+            setVerCorr((v) => v + 1);
+          }}
+          onExportar={() => selectedSheet && exportarCorrecciones(selectedSheet)}
+          onCorregido={(c) => {
+            quitarCorreccion(c.jornada, c.original, c.lat, c.lng);
+            setVerCorr((v) => v + 1);
+            if (selectedSheet) loadPointsExtended(selectedSheet);
+          }}
+        />
       )}
 
-      {/* Modal para asignar técnico */}
-      <AssignTecnicoModal
-        isOpen={showAssignModal}
-        onClose={() => {
-          setShowAssignModal(false);
-          setSelectedPointsForAssign([]);
-        }}
-        selectedPoints={selectedPointsForAssign}
-        sheetName={selectedSheet || ''}
-        onAssignComplete={handleAssignComplete}
-      />
+      {traer && selectedSheet && (
+        <TraerRegistroModal
+          destino={selectedSheet}
+          ocurrencias={traer}
+          onClose={() => setTraer(null)}
+          onDone={() => loadPointsExtended(selectedSheet)}
+        />
+      )}
 
-      {/* CSS para animación pulse y estilos de dibujo */}
+      {showOutOfPeru && (
+        <OutOfPeruModal points={visiblePoints} sheetName={selectedSheet || ''} onClose={() => setShowOutOfPeru(false)} />
+      )}
+
+      {/* Modal de fotos */}
+      {selectedPoint && (
+        <div className="fixed inset-0 z-[1200]">
+          <PhotoGalleryModal
+            photos={selectedPoint.photoLinks || []}
+            suministro={String(selectedPoint.suministro)}
+            onClose={() => setSelectedPoint(null)}
+          />
+        </div>
+      )}
+
+      {/* Estilos de marcadores y barra de dibujo (tema oscuro) */}
       <style>{`
-        @keyframes pulse {
-          0%, 100% { transform: scale(1); opacity: 1; }
-          50% { transform: scale(1.1); opacity: 0.8; }
+        .map-dot { border-radius: 9999px; transition: transform .15s ease; display:flex; align-items:center; justify-content:center; }
+        .map-dot__letter { font: 700 10px/1 'Plus Jakarta Sans', sans-serif; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.6); }
+        .map-dot--active .map-dot__letter { font-size: 12px; }
+        .custom-marker:hover .map-dot { transform: scale(1.25); }
+        .map-dot--active { animation: mapPulse 1.4s ease-in-out infinite; }
+        @keyframes mapPulse {
+          0%, 100% { box-shadow: 0 0 0 4px rgba(0,212,255,.25), 0 2px 6px rgba(0,0,0,.45); }
+          50% { box-shadow: 0 0 0 10px rgba(0,212,255,0), 0 2px 6px rgba(0,0,0,.45); }
         }
-
-        /* Estilos para la barra de herramientas de dibujo */
-        .leaflet-draw-toolbar {
-          margin-top: 10px !important;
-        }
-
+        .leaflet-draw-toolbar { margin-top: 10px !important; }
+        .leaflet-draw-toolbar { border: 0 !important; box-shadow: 0 0 0 2px rgba(0,212,255,.6), 0 8px 20px rgba(0,0,0,.45) !important; border-radius: 10px !important; overflow: hidden; }
         .leaflet-draw-toolbar a {
-          background-color: white !important;
-          border: 1px solid #ccc !important;
-          width: 36px !important;
-          height: 36px !important;
+          background-color: #eef3fa !important;
+          border-bottom: 1px solid #c5d0e2 !important;
+          width: 40px !important;
+          height: 40px !important;
+          background-position-y: 9px !important;
         }
-
-        .leaflet-draw-toolbar a:hover {
-          background-color: #f0f0f0 !important;
-        }
-
+        .leaflet-draw-toolbar a:hover { background-color: #bff6ff !important; }
         .leaflet-draw-actions {
-          background-color: white !important;
-          border-radius: 4px !important;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.2) !important;
+          border-radius: 8px !important;
+          overflow: hidden;
+          box-shadow: 0 8px 24px rgba(0,0,0,.4) !important;
         }
-
         .leaflet-draw-actions a {
-          background-color: white !important;
-          color: #333 !important;
+          background-color: #0d1b31 !important;
+          color: #c5d0e2 !important;
+          border-color: #1f3454 !important;
         }
-
-        .leaflet-draw-actions a:hover {
-          background-color: #22c55e !important;
-          color: white !important;
-        }
+        .leaflet-draw-actions a:hover { background-color: #10b981 !important; color: #fff !important; }
+        .leaflet-draw-tooltip { background: #0a1628; border-color: #2a4268; color: #eef3fa; }
+        .leaflet-draw-tooltip:before { border-right-color: #0a1628; }
       `}</style>
     </div>
   );

@@ -181,11 +181,12 @@ c:\PROGRAMACION\TelcomDashboard\
 | I | createdAt | Fecha de creacion |
 | J | lastLogin | Ultimo acceso |
 
-### Usuario Admin por Defecto
+### Usuario Admin Inicial
 
-- **Email**: `energysupervision13@gmail.com`
-- **Password**: `TELCOM2025@PERU`
-- Se crea automaticamente al ejecutar `?action=initUsersSheet`
+- Se crea al ejecutar `?action=initUsersSheet`.
+- **Las credenciales NO se documentan en este repositorio.** Definir el email y la contrasena del
+  administrador de forma privada (p.ej. en Script Properties del proyecto Apps Script) y cambiar la
+  contrasena tras el primer ingreso. Si alguna vez se publicaron credenciales, rotarlas.
 
 ### Seguridad
 

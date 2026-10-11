@@ -57,7 +57,8 @@ export async function getAllTracking(): Promise<AllTrackingResponse> {
  */
 export async function getTrackingFromPhotos(): Promise<TrackingFromPhotosResponse> {
   try {
-    const response = await api.get(`${API_POINTS}?action=getTrackingFromPhotos`);
+    // El servidor recorre todas las jornadas y suele tardar ~40 s: se amplía el timeout.
+    const response = await api.get(`${API_POINTS}?action=getTrackingFromPhotos`, { timeout: 120000 });
     return response.data;
   } catch (error) {
     console.error('Error obteniendo tracking desde fotos:', error);
