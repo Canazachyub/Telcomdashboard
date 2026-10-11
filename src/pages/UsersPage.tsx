@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import type { PrefillUsuario } from '../services/credencialesService';
+import { getCredenciales, type PrefillUsuario } from '../services/credencialesService';
 import { Users, UserPlus, Edit, Trash2, Search, X, Loader2, RefreshCw, AlertTriangle, UserCheck, UserX } from 'lucide-react';
 import { roleLabels, type User, type UserRole } from '../types/user';
 import RoleAvatar from '../components/RoleAvatar';
@@ -56,6 +56,20 @@ export default function UsersPage() {
   const [formData, setFormData] = useState<UserFormData>(emptyForm);
   const [isEditing, setIsEditing] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
+
+  // Fotos de credencial de la app, por correo (las envía cada técnico al registrarse)
+  const [fotos, setFotos] = useState<Record<string, string>>({});
+  useEffect(() => {
+    getCredenciales()
+      .then((r) => {
+        const m: Record<string, string> = {};
+        r.tecnicos.forEach((t) => {
+          if (t.correo && t.foto) m[t.correo.toLowerCase()] = t.foto;
+        });
+        setFotos(m);
+      })
+      .catch(() => {});
+  }, []);
 
   // «Crear usuario» desde Rastreo: abre el formulario con los datos del registro de la app
   const location = useLocation();
@@ -313,7 +327,13 @@ export default function UsersPage() {
                   <tr key={user.id} className={ui.tbodyRow}>
                     <td className={ui.td}>
                       <div className="flex items-center gap-3">
-                        <RoleAvatar rol={user.rol} seed={user.email || user.id} nombre={user.nombre} size={40} />
+                        <RoleAvatar
+                          rol={user.rol}
+                          seed={user.email || user.id}
+                          nombre={user.nombre}
+                          size={40}
+                          foto={fotos[(user.email || '').toLowerCase()]}
+                        />
                         <div className="min-w-0">
                           <p className="truncate font-medium text-gray-900">{user.nombre}</p>
                           <p className="truncate text-xs text-gray-500">{user.email}</p>

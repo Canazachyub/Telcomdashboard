@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { avatarFor } from '../config/avatars';
+import { fotoSegura } from '../services/credencialesService';
 import type { UserRole } from '../types/user';
 
 const RING: Record<UserRole, string> = {
@@ -23,12 +24,14 @@ interface Props {
   nombre: string;
   size?: number;
   className?: string;
+  /** Foto de credencial de la app (data URL); si existe, reemplaza al avatar por cargo */
+  foto?: string;
 }
 
 /** Avatar por cargo con anillo de color; si la imagen no carga, muestra las iniciales. */
-export default function RoleAvatar({ rol, seed, nombre, size = 36, className = '' }: Props) {
+export default function RoleAvatar({ rol, seed, nombre, size = 36, className = '', foto }: Props) {
   const [failed, setFailed] = useState(false);
-  const src = avatarFor(rol, seed || nombre);
+  const src = fotoSegura(foto) || avatarFor(rol, seed || nombre);
   const ring = RING[rol] || 'ring-gray-300';
   const style = { width: size, height: size };
 
