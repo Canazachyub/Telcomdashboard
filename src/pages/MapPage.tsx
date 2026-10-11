@@ -1111,6 +1111,7 @@ export default function MapPage() {
         <SospechososModal
           jornada={selectedSheet || ''}
           items={sospechosos}
+          puntos={filteredPoints as GpsPointExtended[]}
           onClose={() => setShowSospechosos(false)}
           onVerEnMapa={(sum) => {
             setShowSospechosos(false);

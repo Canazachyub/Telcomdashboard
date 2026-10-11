@@ -100,6 +100,11 @@ export function CompararPanel({ comp, onConfirmar, onSiguiente, onVolver, onCerr
             {sg && <span className={lejos ? 'text-amber-700' : ''}>a {fmtDistancia(sg.distancia)} del GPS de la foto</span>}
             {sg?.jornada && <Badge tone="blue">{sg.jornada}</Badge>}
             {sg?.coincideDigitos && <Badge tone="green">coinciden los dígitos</Badge>}
+            {sg?.porSerie && (
+              <Badge tone={sg.porSerie === 'exacta' ? 'green' : 'amber'}>
+                {sg.porSerie === 'exacta' ? 'coincide la serie del medidor' : 'serie parecida: confirma con la foto'}
+              </Badge>
+            )}
             {lejos && <Badge tone="amber">lejos: confirma con la foto</Badge>}
           </div>
           {cand && (cand.clienteNombre || cand.serie) && (

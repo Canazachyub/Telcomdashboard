@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { corregirEnHoja } from '../../services/corregirSuministro';
-import { X, AlertTriangle, MapPin, FileSearch, Wand2, CheckCircle2, Undo2, Download } from 'lucide-react';
+import { X, AlertTriangle, MapPin, FileSearch, Wand2, CheckCircle2, Undo2, Download, Search } from 'lucide-react';
 import { buscarCorreccion, type Correccion } from '../../utils/correcciones';
 import type { Sospechoso } from '../../utils/suministroCheck';
-import { MOTIVO_TEXTO, fmtDistancia, LEJOS_M, MAX_SUGERENCIA_M, esMalEscrito, posFoto } from '../../utils/suministroCheck';
+import { MOTIVO_TEXTO, fmtDistancia, LEJOS_M, MAX_SUGERENCIA_M, esMalEscrito, posFoto, buscarPorSerie } from '../../utils/suministroCheck';
 import type { GpsPointExtended, PhotoLink } from '../../types/point';
 import { Badge, ui } from '../ui';
 import PhotoStrip from '../PhotoStrip';
@@ -12,6 +12,8 @@ import PhotoGalleryModal from '../PhotoGalleryModal';
 interface Props {
   jornada: string;
   items: Sospechoso[];
+  /** Puntos de la jornada, para buscar por la serie del medidor */
+  puntos: GpsPointExtended[];
   onClose: () => void;
   onVerEnMapa: (suministro: string) => void;
   onFicha: (point: GpsPointExtended) => void;
@@ -31,6 +33,7 @@ interface Props {
 export default function SospechososModal({
   jornada,
   items,
+  puntos,
   onClose,
   onVerEnMapa,
   onFicha,
@@ -48,6 +51,8 @@ export default function SospechososModal({
   const [aConfirmar, setAConfirmar] = useState<string | null>(null);
   const [enviando, setEnviando] = useState<string | null>(null);
   const [resultado, setResultado] = useState<Record<string, { ok: boolean; texto: string }>>({});
+  // Serie escrita por registro (la que se lee en la placa del medidor)
+  const [series, setSeries] = useState<Record<string, string>>({});
 
   const aplicar = async (clave: string, c: Correccion) => {
     setEnviando(clave);
@@ -195,6 +200,50 @@ export default function SospechososModal({
                   {it.sugerencias.length > 0 && !corr && (
                     <p className="mt-1.5 text-[11px] text-gray-500">Toca una sugerencia para verla en el mapa y confirmarla.</p>
                   )}
+
+                  {/* Por la serie de la placa: sugiere el suministro, no lo cambia */}
+                  {(() => {
+                    const q = series[clave] || '';
+                    const hallados = buscarPorSerie(q, p, puntos);
+                    return (
+                      <div className="mt-3">
+                        <label className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-gray-600">
+                          <Search size={12} /> Buscar por la serie del medidor (mírala en la foto)
+                        </label>
+                        <input
+                          value={q}
+                          onChange={(e) => setSeries((x) => ({ ...x, [clave]: e.target.value }))}
+                          placeholder="Número de serie de la placa"
+                          className={`${ui.input} max-w-xs font-mono text-sm`}
+                        />
+                        {q.replace(/[^0-9a-z]/gi, '').length >= 4 && hallados.length === 0 && (
+                          <p className="mt-1.5 text-xs text-amber-700">Ningún medidor de esta jornada tiene esa serie.</p>
+                        )}
+                        {hallados.length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {hallados.map((sg) => (
+                              <button
+                                key={sg.point.suministro}
+                                onClick={() =>
+                                  onComparar({ ...it, sugerencias: [sg, ...it.sugerencias.filter((x) => x.point !== sg.point)] }, 0)
+                                }
+                                title="Ver este punto en el mapa junto a la foto y confirmar"
+                                className="flex items-center gap-2 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-left text-xs transition hover:border-cyan-400"
+                              >
+                                <MapPin size={12} className="text-cyan-600" />
+                                <span className="font-mono font-semibold text-gray-900">{sg.point.suministro}</span>
+                                <span className="text-gray-500">serie {(sg.point as GpsPointExtended).serie}</span>
+                                <Badge tone={sg.porSerie === 'exacta' ? 'green' : 'amber'}>
+                                  {sg.porSerie === 'exacta' ? 'serie exacta' : 'serie parecida'}
+                                </Badge>
+                                {sg.distancia != null && <span className="text-gray-500">a {fmtDistancia(sg.distancia)}</span>}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                   {corr && (
                     <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-cyan-300/50 bg-cyan-50 px-3 py-2 text-xs text-cyan-800">
                       <CheckCircle2 size={14} />

@@ -12,8 +12,11 @@
 // del suministro correcto (el link no cambia). No borra filas.
 // Cada cambio queda en la hoja «_Correcciones» con los valores anteriores.
 //
-// Seguridad: exige el token del dashboard (login) de un usuario ADMIN o SUPERVISOR
-// activo. La app de campo no usa esta acción.
+// Seguridad:
+//   - Dashboard: token de login de un usuario ADMIN o SUPERVISOR activo.
+//   - App de campo: el ODT_ID del técnico registrado en «_ODT_Tecnicos». Solo corrige
+//     SUS fotos (columna AH = su ID) y solo hacia un suministro que esté en la
+//     lista de la jornada.
 //
 // INSTALACIÓN (2 pasos):
 //   1. En el editor de Apps Script: Archivo > Nuevo > Secuencia de comandos,
@@ -30,7 +33,9 @@ const CORRECCION_RADIO_M = 300; // filas de foto a esta distancia de la posició
 
 /**
  * requestData: {
- *   action: 'corregirSuministro', token, sheetName, original, corregido,
+ *   action: 'corregirSuministro', sheetName, original, corregido,
+ *   token     // dashboard (ADMIN / SUPERVISOR)
+ *   odtId     // o bien: app de campo (técnico registrado)
  *   lat?, lng?   // posición del punto mal escrito (para no tocar otra visita con el mismo error)
  *   simular?     // true = solo informa qué cambiaría, sin escribir
  * }
@@ -41,9 +46,12 @@ function handleCorregirSuministro(requestData) {
     const d = requestData || {};
 
     // ---- Autorización ----
-    const usuario = correccion_usuarioAutorizado_(d.token);
+    const odtId = d.token ? '' : correccion_norm_(d.odtId);
+    const usuario = d.token ? correccion_usuarioAutorizado_(d.token) : correccion_tecnicoRegistrado_(odtId);
     if (!usuario) {
-      return createResponse(false, 'No autorizado: inicia sesión en el dashboard como administrador o supervisor');
+      return createResponse(false, d.token || !odtId
+        ? 'No autorizado: inicia sesión en el dashboard como administrador o supervisor'
+        : 'No autorizado: tu perfil de técnico no está registrado. Abre la app con internet e inténtalo otra vez');
     }
 
     // ---- Validación ----
@@ -86,14 +94,21 @@ function handleCorregirSuministro(requestData) {
       const row = data[i];
       const sum = correccion_norm_(row[m.suministro]);
       const esFoto = !(row[m.numero] === '' || row[m.numero] === null);
-      if (sum === original && esFoto) filas.push(i);
+      // El técnico solo corrige sus propias fotos
+      const propia = !odtId || correccion_norm_(row[m.odtId]) === odtId;
+      if (sum === original && esFoto && propia) filas.push(i);
       if (sum === corregido) {
         if (!esFoto && !fuente) fuente = row;
         if (esFoto) fotosPreviasDestino++;
       }
     }
     if (filas.length === 0) {
-      return createResponse(false, 'No hay fotos registradas con el suministro «' + original + '» en ' + sheetName);
+      return createResponse(false, (odtId ? 'No hay fotos tuyas' : 'No hay fotos registradas') +
+        ' con el suministro «' + original + '» en ' + sheetName);
+    }
+    if (odtId && !fuente) {
+      return createResponse(false, 'El suministro ' + corregido + ' no está en la lista de ' + sheetName +
+        '. Desde la app solo se puede corregir a un suministro de la jornada');
     }
 
     // Si se indicó la posición, solo las fotos de esa visita (las que no tienen coordenadas también)
@@ -185,6 +200,21 @@ function correccion_usuarioAutorizado_(token) {
     const rol = row[3].toString().toUpperCase();
     const activo = row[4].toString().toUpperCase() === 'TRUE';
     return activo && CORRECCION_ROLES.indexOf(rol) >= 0 ? { email: email, rol: rol } : null;
+  }
+  return null;
+}
+
+/** Técnico de la app {email, rol} si su ODT_ID está registrado en «_ODT_Tecnicos». */
+function correccion_tecnicoRegistrado_(odtId) {
+  if (!odtId) return null;
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName(ODT_SHEET_NAME);
+  if (!sheet || sheet.getLastRow() < 2) return null;
+  const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues();
+  for (const row of rows) {
+    if (correccion_norm_(row[0]) === odtId) {
+      return { email: 'APP ' + row[1] + ' (' + odtId + ')', rol: 'TECNICO' };
+    }
   }
   return null;
 }

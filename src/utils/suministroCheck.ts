@@ -19,6 +19,8 @@ export interface Sugerencia {
   distancia: number | null; // metros
   coincideDigitos: boolean;
   puntaje: number; // menor = mejor
+  /** Encontrada por la serie del medidor (la de la placa en la foto) */
+  porSerie?: 'exacta' | 'parcial';
 }
 
 export interface Sospechoso {
@@ -150,3 +152,36 @@ const coords = (lat: unknown, lng: unknown): [number, number] | null => {
 export const posFoto = (p: P) => coords(p.latReal ?? p.latRef, p.longReal ?? p.longRef);
 /** Posición del candidato según la lista (o su foto si no tiene referencia) */
 export const posCandidato = (p: P) => coords(p.latRef ?? p.latReal, p.longRef ?? p.longReal);
+
+/** Serie comparable: sin espacios ni guiones, en mayúsculas y sin ceros a la izquierda. */
+export const normSerie = (s: unknown) =>
+  String(s ?? '')
+    .toUpperCase()
+    .replace(/[^0-9A-Z]/g, '')
+    .replace(/^0+(?=.)/, '');
+
+/**
+ * Suministros de la jornada cuyo medidor tiene esa serie (leída en la placa de la
+ * foto). Exactas primero; luego parciales, por si la placa se leyó incompleta.
+ * Solo sugiere: la corrección la confirma el usuario.
+ */
+export function buscarPorSerie(serie: string, mal: P, points: P[], max = 5): Sugerencia[] {
+  const q = normSerie(serie);
+  if (q.length < 4) return [];
+  const pos = posFoto(mal);
+  const out: Sugerencia[] = [];
+  const vistos = new Set<string>();
+  for (const c of points) {
+    if (c === mal) continue;
+    const s = normSerie((c as GpsPointExtended).serie);
+    const k = norm(c.suministro);
+    if (s.length < 4 || vistos.has(k)) continue;
+    const exacta = s === q;
+    if (!exacta && !s.includes(q) && !q.includes(s)) continue;
+    vistos.add(k);
+    const pc = posCandidato(c);
+    const d = pos && pc ? distancia(pos[0], pos[1], pc[0], pc[1]) : null;
+    out.push({ point: c, jornada: null, distancia: d, coincideDigitos: false, puntaje: exacta ? 0 : 1, porSerie: exacta ? 'exacta' : 'parcial' });
+  }
+  return out.sort((a, b) => a.puntaje - b.puntaje).slice(0, max);
+}
