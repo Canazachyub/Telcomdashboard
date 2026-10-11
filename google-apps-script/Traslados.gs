@@ -6,7 +6,8 @@
 // traer su fila de la lista a la jornada actual. Así savePhoto encuentra la fila y
 // la foto queda con cliente, dirección, coordenadas de referencia, etc.
 //
-// - buscarEnHojas (GET, solo lectura): ?action=buscarEnHojas&tipo=serie|suministro&q=...
+// - buscarEnHojas (GET): ?action=buscarEnHojas&tipo=serie|suministro&q=...  No cambia las
+//   jornadas; usa un índice oculto («_Indice») para responder en 1–2 s.
 // - traerSuministro (POST): copia B–W de la fila de la lista (columna A vacía) de
 //   «desde» como fila de lista nueva al final de «hacia». No borra ni cambia la
 //   hoja de origen. Cada traslado queda en «_Traslados».
@@ -35,9 +36,171 @@ function traslado_json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
+// ---- Índice de búsqueda («_Indice» y «_IndiceHojas», ocultas) ----
+// Recorrer las 100 jornadas tarda ~45 s. El índice guarda suministro y serie de
+// todas; una búsqueda solo lee el índice y vuelve a leer las hojas que cambiaron
+// de nombre o de número de filas (fotos nuevas, suministros traídos, jornadas
+// nuevas). Cada noche se reconstruye completo para recoger ediciones dentro de
+// una fila. Instalación: ejecutar una vez «instalarIndiceBusqueda» en el editor.
+const INDICE_SHEET_NAME = '_Indice';
+const INDICE_HOJAS_SHEET_NAME = '_IndiceHojas';
+const INDICE_COLS = ['Hoja', 'SheetId', 'Suministro', 'SerieNorm', 'Serie', 'CodigoRuta', 'Distrito', 'DeLista', 'Fotos'];
+const INDICE_REVISION_SEG = 120; // entre revisiones de cambios, se usa el índice tal cual
+
+/** Filas de índice de una jornada (una por suministro), o null si no es extendida. */
+function indice_filasDeHoja_(sh) {
+  const m = COLUMN_MAPPING.extended;
+  const last = sh.getLastRow();
+  if (last < 2 || sh.getLastColumn() < 12) return null;
+  const data = sh.getRange(1, 1, last, 12).getValues(); // A–L, con encabezado
+  if (!String(data[0][1] || '').toUpperCase().includes('TECNICO')) return null;
+  const hoja = sh.getName();
+  const id = sh.getSheetId();
+  const por = {};
+  const orden = [];
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    const sum = correccion_norm_(row[m.suministro]);
+    if (!sum) continue;
+    const deLista = row[m.numero] === '' || row[m.numero] === null;
+    const r = por[sum];
+    if (r) {
+      if (deLista) r[7] = 1;
+      else r[8]++;
+      if (!r[4] && row[m.serie] !== '' && row[m.serie] !== null) {
+        r[4] = String(row[m.serie]);
+        r[3] = traslado_normSerie_(row[m.serie]);
+      }
+      continue;
+    }
+    const serie = row[m.serie] === null ? '' : String(row[m.serie]);
+    por[sum] = [hoja, id, sum, traslado_normSerie_(serie), serie,
+      String(row[m.codigoRuta] === null ? '' : row[m.codigoRuta]),
+      String(row[m.distrito] === null ? '' : row[m.distrito]),
+      deLista ? 1 : 0, deLista ? 0 : 1];
+    orden.push(sum);
+  }
+  return orden.map(function (k) { return por[k]; });
+}
+
+function indice_hoja_(ss, nombre, cols) {
+  let sh = ss.getSheetByName(nombre);
+  if (!sh) {
+    sh = ss.insertSheet(nombre);
+    sh.getRange(1, 1, 1, cols.length).setValues([cols]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+    try { sh.hideSheet(); } catch (e) {}
+  }
+  return sh;
+}
+
+function indice_leer_(sh, ancho) {
+  const last = sh.getLastRow();
+  return last < 2 ? [] : sh.getRange(2, 1, last - 1, ancho).getValues();
+}
+
+function indice_escribir_(sh, cols, filas) {
+  sh.clearContents();
+  sh.getRange(1, 1, 1, cols.length).setValues([cols]);
+  if (filas.length) sh.getRange(2, 1, filas.length, cols.length).setValues(filas);
+}
+
+/**
+ * Devuelve { filas, rango } con el índice al día. rango[sheetId] = posición de la
+ * hoja en el libro (para ordenar resultados). forzar = reconstruir todo.
+ */
+function indice_obtener_(forzar) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const cache = CacheService.getScriptCache();
+  const shI = indice_hoja_(ss, INDICE_SHEET_NAME, INDICE_COLS);
+  const shH = indice_hoja_(ss, INDICE_HOJAS_SHEET_NAME, ['SheetId', 'Hoja', 'Filas']);
+
+  const rangoDe = function (hojas) {
+    const r = {};
+    hojas.forEach(function (h, i) { r[String(h[0])] = i; });
+    return r;
+  };
+
+  // Revisado hace poco: usar tal cual
+  if (!forzar && cache.get('indice_revisado')) {
+    return { filas: indice_leer_(shI, INDICE_COLS.length), rango: rangoDe(indice_leer_(shH, 3)) };
+  }
+
+  // Estado actual de las jornadas (en el orden del libro)
+  const actuales = [];
+  const porId = {};
+  ss.getSheets().forEach(function (s) {
+    const n = s.getName();
+    if (traslado_hojaOculta_(n)) return;
+    const id = String(s.getSheetId());
+    actuales.push([id, n, s.getLastRow()]);
+    porId[id] = s;
+  });
+  const antes = {};
+  indice_leer_(shH, 3).forEach(function (h) { antes[String(h[0])] = h; });
+  const cambiadas = actuales.filter(function (h) {
+    const a = antes[h[0]];
+    return forzar || !a || String(a[1]) !== h[1] || Number(a[2]) !== h[2];
+  }).map(function (h) { return h[0]; });
+  const borradas = Object.keys(antes).filter(function (id) { return !porId[id]; });
+
+  let filas = indice_leer_(shI, INDICE_COLS.length);
+  if (forzar || cambiadas.length || borradas.length) {
+    const lock = LockService.getScriptLock();
+    if (!lock.tryLock(30000)) return { filas: filas, rango: rangoDe(actuales) }; // otro lo está actualizando
+    try {
+      const fuera = {};
+      cambiadas.concat(borradas).forEach(function (id) { fuera[id] = true; });
+      filas = filas.filter(function (r) { return !fuera[String(r[1])]; });
+      cambiadas.forEach(function (id) {
+        const nuevas = indice_filasDeHoja_(porId[id]);
+        if (nuevas) filas = filas.concat(nuevas);
+      });
+      indice_escribir_(shI, INDICE_COLS, filas);
+      indice_escribir_(shH, ['SheetId', 'Hoja', 'Filas'], actuales);
+      SpreadsheetApp.flush();
+    } finally {
+      lock.releaseLock();
+    }
+  }
+  cache.put('indice_revisado', '1', INDICE_REVISION_SEG);
+  return { filas: filas, rango: rangoDe(actuales) };
+}
+
+/** Marca una jornada para volver a indexarla en la próxima búsqueda (tras escribir en ella). */
+function indice_invalidar_(nombre) {
+  try {
+    CacheService.getScriptCache().remove('indice_revisado');
+    const sh = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(INDICE_HOJAS_SHEET_NAME);
+    if (!sh || sh.getLastRow() < 2) return;
+    const v = sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues();
+    for (let i = 0; i < v.length; i++) {
+      if (String(v[i][1]) === nombre) { sh.getRange(i + 2, 3).setValue(-1); break; }
+    }
+  } catch (e) {
+    Logger.log('No se pudo invalidar el índice: ' + e);
+  }
+}
+
+/** Ejecutar UNA VEZ desde el editor: arma el índice y lo reconstruye cada noche. */
+function instalarIndiceBusqueda() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'reconstruirIndiceBusqueda') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('reconstruirIndiceBusqueda').timeBased().atHour(3).everyDays(1).create();
+  reconstruirIndiceBusqueda();
+}
+
+function reconstruirIndiceBusqueda() {
+  const t0 = Date.now();
+  const r = indice_obtener_(true);
+  Logger.log('Índice de búsqueda: ' + r.filas.length + ' suministros en ' + Math.round((Date.now() - t0) / 1000) + ' s');
+}
+
 /**
  * Busca un suministro o una serie de medidor en todas las jornadas (estructura
- * extendida). Coincidencia exacta o parcial (contiene lo escrito). Solo lectura.
+ * extendida). Coincidencia exacta o parcial (contiene lo escrito). Solo lectura
+ * de las jornadas; mantiene el índice oculto al día.
  */
 function handleBuscarEnHojas(params) {
   try {
@@ -47,59 +210,38 @@ function handleBuscarEnHojas(params) {
     if (q.length < 4) {
       return traslado_json_({ success: false, message: 'Escribe al menos 4 caracteres', resultados: [] });
     }
-
-    const m = COLUMN_MAPPING.extended;
-    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-    const resultados = [];
-
-    ss.getSheets().forEach(function (sh) {
-      const hoja = sh.getName();
-      if (traslado_hojaOculta_(hoja)) return;
-      const last = sh.getLastRow();
-      if (last < 2 || sh.getLastColumn() < 12) return;
-      const data = sh.getRange(1, 1, last, 12).getValues(); // A–L, con encabezado
-      if (!String(data[0][1] || '').toUpperCase().includes('TECNICO')) return; // solo extendidas
-
-      const porCodigo = {};
-      for (let i = 1; i < data.length; i++) {
-        const row = data[i];
-        const sum = correccion_norm_(row[m.suministro]);
-        if (!sum) continue;
-        const valor = tipo === 'serie' ? traslado_normSerie_(row[m.serie]) : sum;
-        if (valor.length < 4 || valor.indexOf(q) < 0) continue;
-        const deLista = row[m.numero] === '' || row[m.numero] === null;
-        const r = porCodigo[sum];
-        if (r) {
-          if (deLista) r.deLista = true;
-          else r.fotos++;
-          continue;
-        }
-        porCodigo[sum] = {
-          hoja: hoja,
-          suministro: sum,
-          serie: String(row[m.serie] === null ? '' : row[m.serie]),
-          codigoRuta: String(row[m.codigoRuta] === null ? '' : row[m.codigoRuta]),
-          distrito: String(row[m.distrito] === null ? '' : row[m.distrito]),
+    const t0 = Date.now();
+    const idx = indice_obtener_(false);
+    const encontrados = [];
+    idx.filas.forEach(function (r) {
+      const valor = tipo === 'serie' ? String(r[3]) : correccion_norm_(r[2]);
+      if (valor.length < 4 || valor.indexOf(q) < 0) return;
+      encontrados.push({
+        pos: idx.rango[String(r[1])] || 0,
+        r: {
+          hoja: String(r[0]),
+          suministro: correccion_norm_(r[2]),
+          serie: String(r[4]),
+          codigoRuta: String(r[5]),
+          distrito: String(r[6]),
           exacta: valor === q,
-          deLista: deLista,
-          fotos: deLista ? 0 : 1
-        };
-      }
-      Object.keys(porCodigo).forEach(function (k) { resultados.push(porCodigo[k]); });
+          deLista: Number(r[7]) === 1,
+          fotos: Number(r[8]) || 0
+        }
+      });
     });
-
     // Exactas primero; dentro de cada grupo, las jornadas más recientes primero
-    const orden = resultados.map(function (r, i) { return { r: r, i: i }; });
-    orden.sort(function (a, b) {
+    encontrados.sort(function (a, b) {
       if (a.r.exacta !== b.r.exacta) return a.r.exacta ? -1 : 1;
-      return b.i - a.i;
+      return b.pos - a.pos;
     });
     return traslado_json_({
       success: true,
       tipo: tipo,
       q: q,
-      total: resultados.length,
-      resultados: orden.slice(0, BUSQUEDA_MAX).map(function (x) { return x.r; })
+      total: encontrados.length,
+      ms: Date.now() - t0,
+      resultados: encontrados.slice(0, BUSQUEDA_MAX).map(function (x) { return x.r; })
     });
   } catch (error) {
     Logger.log('Error en buscarEnHojas: ' + error);
@@ -174,6 +316,7 @@ function handleTraerSuministro(requestData) {
     const fila = shH.getLastRow();
 
     traslado_hojaLog_(ss).appendRow([new Date(), usuario.email, usuario.rol, desde, hacia, sum, fila]);
+    indice_invalidar_(hacia);
 
     return createResponse(true, 'Suministro ' + sum + ' agregado a ' + hacia, {
       fila: fila, desde: desde, hacia: hacia, suministro: sum

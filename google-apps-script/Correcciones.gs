@@ -174,6 +174,8 @@ function handleCorregirSuministro(requestData) {
       ]);
     });
     SpreadsheetApp.flush();
+    // El código cambió sin agregar filas: que la búsqueda vuelva a leer esta jornada
+    if (typeof indice_invalidar_ === 'function') indice_invalidar_(sheetName);
 
     resumen.fotosMovidas = fotosMovidas;
     return createResponse(true, 'Suministro corregido en ' + filas.length + ' foto(s)', resumen);

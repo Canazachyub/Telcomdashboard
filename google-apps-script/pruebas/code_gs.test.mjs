@@ -14,19 +14,24 @@ function fila(num, sum, serie, extra = {}) {
   return r;
 }
 
+let lecturas = 0; // getValues sobre jornadas (para medir qué se vuelve a leer)
+let siguienteId = 100;
 class Sheet {
-  constructor(name, rows) { this.name = name; this.rows = rows; }
+  constructor(name, rows) { this.name = name; this.rows = rows; this.id = siguienteId++; }
   getName() { return this.name; }
-  getSheetId() { return this.name.length; }
+  getSheetId() { return this.id; }
   getLastRow() { return this.rows.length; }
   getLastColumn() { return this.rows[0]?.length || 0; }
   getRange(r, c, nr = 1, nc = 1) {
     const self = this;
     const rango = {
-      getValues: () => Array.from({ length: nr }, (_, i) => Array.from({ length: nc }, (_, j) => self.rows[r - 1 + i]?.[c - 1 + j] ?? '')),
+      getValues: () => (!self.name.startsWith('_') && nc >= 12 && lecturas++, 0) || Array.from({ length: nr }, (_, i) => Array.from({ length: nc }, (_, j) => self.rows[r - 1 + i]?.[c - 1 + j] ?? '')),
       getFormulas: () => Array.from({ length: nr }, () => new Array(nc).fill('')),
-      setValues: (v) => { v.forEach((row, i) => row.forEach((x, j) => { self.rows[r - 1 + i][c - 1 + j] = x; })); return rango; },
-      setValue: (x) => { self.rows[r - 1][c - 1] = x; return rango; },
+      setValues: (v) => {
+        v.forEach((row, i) => row.forEach((x, j) => { (self.rows[r - 1 + i] ||= [])[c - 1 + j] = x; }));
+        return rango;
+      },
+      setValue: (x) => { (self.rows[r - 1] ||= [])[c - 1] = x; return rango; },
       getValue: () => self.rows[r - 1]?.[c - 1] ?? '',
       setFontWeight: () => rango, setBackground: () => rango, setFormula: () => rango,
     };
@@ -34,6 +39,8 @@ class Sheet {
   }
   appendRow(row) { this.rows.push(row.slice()); }
   setFrozenRows() {}
+  clearContents() { this.rows = []; }
+  hideSheet() { this.oculta = true; }
 }
 
 const sheets = [
@@ -52,7 +59,12 @@ const out = (t) => ({ getContent: () => t, setMimeType() { return this; } });
 const ctx = {
   SpreadsheetApp: { openById: () => ss, flush: () => {} },
   ContentService: { createTextOutput: out, MimeType: { JSON: 'json' } },
-  LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
+  LockService: { getScriptLock: () => ({ waitLock() {}, tryLock: () => true, releaseLock() {} }) },
+  ScriptApp: (() => {
+    const triggers = [];
+    const b = (fn) => ({ timeBased: () => ({ atHour: () => ({ everyDays: () => ({ create: () => triggers.push(fn) }) }) }) });
+    return { triggers, getProjectTriggers: () => triggers.map((fn) => ({ getHandlerFunction: () => fn })), deleteTrigger: () => {}, newTrigger: b };
+  })(),
   Logger: { log: () => {} },
   DriveApp: (() => {
     const files = {};
@@ -75,11 +87,15 @@ const ctx = {
     base64Encode: (b) => Buffer.from(b).toString('base64'),
     newBlob: (bytes, type, name) => ({ bytes, type, name, getBytes: () => bytes, getContentType: () => type }),
   }, PropertiesService: { getScriptProperties: () => ({ getProperty: () => null }) },
-  CacheService: { getScriptCache: () => ({ get: () => null, put() {} }) },
+  CacheService: (() => {
+    const mem = {};
+    const c = { get: (k) => mem[k] ?? null, put: (k, v) => { mem[k] = v; }, remove: (k) => { delete mem[k]; } };
+    return { mem, getScriptCache: () => c };
+  })(),
   console,
 };
 vm.createContext(ctx);
-vm.runInContext(fs.readFileSync(process.argv[2], 'utf8') + '\n;globalThis.__f={handleBuscarEnHojas,handleTraerSuministro,handleCorregirSuministro,handleRegistrarCredencial,handleGetCredenciales};;', ctx);
+vm.runInContext(fs.readFileSync(process.argv[2], 'utf8') + '\n;globalThis.__f={handleBuscarEnHojas,handleTraerSuministro,handleCorregirSuministro,handleRegistrarCredencial,handleGetCredenciales}; globalThis.__f2={instalarIndiceBusqueda};;', ctx);
 const { handleBuscarEnHojas, handleTraerSuministro, handleCorregirSuministro, handleRegistrarCredencial, handleGetCredenciales } = ctx.__f;
 vm.runInContext("verifyToken = (t) => (t === 'TOKEN_ADMIN' ? 'admin@x.com' : null);", ctx);
 const j = (r) => JSON.parse(r.getContent());
@@ -189,4 +205,64 @@ assert.equal(r.tecnicos[0].correo, 'yub@telcom.pe');
 assert.equal(r.tecnicos[0].lat, -13.52);
 assert.match(r.tecnicos[0].foto, /^data:image\/jpeg;base64,/);
 console.log('OK getCredenciales: solo admin/supervisor, con foto en base64');
+// --- índice de búsqueda ---
+const cache = ctx.CacheService.mem;
+const idx = ss.getSheetByName('_Indice');
+assert.ok(idx && idx.oculta, 'el índice es una hoja oculta');
+assert.ok(idx.rows.some((r) => r[2] === '10010000001'), 'el índice tiene los suministros');
+
+// Las pruebas anteriores trajeron un suministro a OSINERMING: esa jornada se relee una vez
+lecturas = 0;
+j(handleBuscarEnHojas({ tipo: 'serie', q: '87654321' }));
+assert.equal(lecturas, 1, 'tras traer, relee solo la jornada destino');
+lecturas = 0;
+r = j(handleBuscarEnHojas({ tipo: 'serie', q: '87654321' }));
+assert.equal(r.resultados[0].suministro, '10010000002');
+assert.equal(lecturas, 0, 'con el índice revisado no lee ninguna jornada');
+console.log('OK búsqueda con índice: no recorre las jornadas');
+
+// Una foto nueva en SEMANA 1 (fila más): pasado el intervalo, solo se relee esa hoja
+ss.getSheetByName('SEMANA 1').rows.push(fila(2, '10010000003', '55554444'));
+r = j(handleBuscarEnHojas({ tipo: 'serie', q: '55554444' }));
+assert.equal(r.total, 0, 'dentro de los 2 minutos usa el índice tal cual');
+delete cache.indice_revisado;
+lecturas = 0;
+r = j(handleBuscarEnHojas({ tipo: 'serie', q: '55554444' }));
+assert.equal(r.resultados[0].suministro, '10010000003');
+assert.equal(lecturas, 1, 'solo vuelve a leer la jornada que cambió');
+console.log('OK índice incremental: solo relee la jornada con filas nuevas');
+
+// Jornada renombrada y jornada nueva
+ss.getSheetByName('SEMANA 1').name = 'SEMANA 1 (renombrada)';
+sheets.push(new Sheet('SEMANA 2', [HEAD.slice(), fila('', '10010000077', '77776666')]));
+delete cache.indice_revisado;
+lecturas = 0;
+r = j(handleBuscarEnHojas({ tipo: 'suministro', q: '10010000077' }));
+assert.equal(r.resultados[0].hoja, 'SEMANA 2');
+r = j(handleBuscarEnHojas({ tipo: 'suministro', q: '10010000001' }));
+assert.ok(r.resultados.some((x) => x.hoja === 'SEMANA 1 (renombrada)'));
+assert.ok(!idx.rows.some((x) => x[0] === 'SEMANA 1'), 'el nombre viejo sale del índice');
+assert.equal(lecturas, 2);
+console.log('OK jornada nueva y renombrada se indexan');
+
+// Hoja borrada sale del índice
+sheets.splice(sheets.findIndex((x) => x.name === 'SEMANA 2'), 1);
+delete cache.indice_revisado;
+r = j(handleBuscarEnHojas({ tipo: 'suministro', q: '10010000077' }));
+assert.equal(r.total, 0);
+console.log('OK jornada borrada sale del índice');
+
+// Traer invalida la jornada destino: se ve al instante
+r = j(handleTraerSuministro({ odtId: 'TEC12345', desde: 'SEMANA 1 (renombrada)', hacia: 'OSINERMING', suministro: '10010000003' }));
+assert.equal(r.success, true, r.message);
+r = j(handleBuscarEnHojas({ tipo: 'suministro', q: '10010000003' }));
+assert.ok(r.resultados.some((x) => x.hoja === 'OSINERMING'), 'traer se refleja sin esperar');
+console.log('OK traer actualiza el índice al momento');
+
+// Reconstrucción nocturna e instalación
+lecturas = 0;
+ctx.__f2.instalarIndiceBusqueda();
+assert.deepEqual(ctx.ScriptApp.triggers, ['reconstruirIndiceBusqueda']);
+assert.ok(lecturas >= 2, 'la reconstrucción lee todas las jornadas');
+console.log('OK instalarIndiceBusqueda: arma el índice y programa la reconstrucción diaria');
 console.log('TODO OK');
