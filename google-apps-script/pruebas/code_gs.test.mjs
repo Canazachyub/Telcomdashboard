@@ -14,7 +14,8 @@ function fila(num, sum, serie, extra = {}) {
   return r;
 }
 
-let lecturas = 0; // getValues sobre jornadas (para medir qué se vuelve a leer)
+let lecturas = 0;
+let busquedasTextFinder = 0; // getValues sobre jornadas (para medir qué se vuelve a leer)
 let siguienteId = 100;
 class Sheet {
   constructor(name, rows) { this.name = name; this.rows = rows; this.id = siguienteId++; }
@@ -34,6 +35,21 @@ class Sheet {
       setValue: (x) => { (self.rows[r - 1] ||= [])[c - 1] = x; return rango; },
       getValue: () => self.rows[r - 1]?.[c - 1] ?? '',
       setFontWeight: () => rango, setBackground: () => rango, setFormula: () => rango,
+      setNumberFormat: () => rango,
+      createTextFinder: (q) => ({
+        matchCase() { return this; },
+        findAll: () => {
+          const out = [];
+          for (let i = 0; i < nr; i++) {
+            for (let k = 0; k < nc; k++) {
+              const v = String(self.rows[r - 1 + i]?.[c - 1 + k] ?? '');
+              if (v.toUpperCase().includes(String(q).toUpperCase())) out.push({ getRow: () => r + i });
+            }
+          }
+          busquedasTextFinder++;
+          return out;
+        },
+      }),
     };
     return rango;
   }
@@ -220,6 +236,7 @@ lecturas = 0;
 r = j(handleBuscarEnHojas({ tipo: 'serie', q: '87654321' }));
 assert.equal(r.resultados[0].suministro, '10010000002');
 assert.equal(lecturas, 0, 'con el índice revisado no lee ninguna jornada');
+assert.ok(busquedasTextFinder > 0, 'usa el buscador de Sheets sobre el índice');
 console.log('OK búsqueda con índice: no recorre las jornadas');
 
 // Una foto nueva en SEMANA 1 (fila más): pasado el intervalo, solo se relee esa hoja
@@ -278,4 +295,14 @@ r = j(handleBuscarEnHojas({ tipo: 'serie', q: '99990000' }));
 assert.equal(r.resultados[0]?.suministro, '10070000055');
 assert.equal(lecturas, 0, 'la búsqueda ya no lee jornadas: lo hizo el disparador');
 console.log('OK disparador de 15 min: la búsqueda nunca espera la revisión');
+// Muchas coincidencias parciales: lee el índice completo y ordena bien
+const muchas = ss.getSheetByName('OSINERMING');
+for (let i = 0; i < 70; i++) muchas.rows.push(fila('', '1007777' + String(i).padStart(4, '0'), 'AB' + i));
+ctx.__f2.actualizarIndiceBusqueda();
+r = j(handleBuscarEnHojas({ tipo: 'suministro', q: '10077770' }));
+assert.equal(r.total, 70);
+assert.equal(r.resultados.length, 20);
+r = j(handleBuscarEnHojas({ tipo: 'suministro', q: '10077770042' }));
+assert.equal(r.resultados[0].exacta, true);
+console.log('OK muchas coincidencias: lee el índice completo; exactas primero');
 console.log('TODO OK');

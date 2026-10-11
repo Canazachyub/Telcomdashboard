@@ -47,6 +47,7 @@ function traslado_json_(obj) {
 const INDICE_SHEET_NAME = '_Indice';
 const INDICE_HOJAS_SHEET_NAME = '_IndiceHojas';
 const INDICE_COLS = ['Hoja', 'SheetId', 'Suministro', 'SerieNorm', 'Serie', 'CodigoRuta', 'Distrito', 'DeLista', 'Fotos'];
+const INDICE_MAX_FILAS_SUELTAS = 60; // más coincidencias que esto: se lee el índice completo
 const INDICE_REVISION_SEG = 1200; // la revisión la hace el disparador cada 15 min; esto es el respaldo
 
 /** Filas de índice de una jornada (una por suministro), o null si no es extendida. */
@@ -104,14 +105,18 @@ function indice_leer_(sh, ancho) {
 function indice_escribir_(sh, cols, filas) {
   sh.clearContents();
   sh.getRange(1, 1, 1, cols.length).setValues([cols]);
-  if (filas.length) sh.getRange(2, 1, filas.length, cols.length).setValues(filas);
+  if (filas.length) {
+    // Texto plano: que Sheets no convierta códigos en números ni quite ceros
+    sh.getRange(2, 1, filas.length, cols.length).setNumberFormat('@').setValues(filas);
+  }
 }
 
 /**
  * Devuelve { filas, rango } con el índice al día. rango[sheetId] = posición de la
  * hoja en el libro (para ordenar resultados). forzar = reconstruir todo.
+ * sinFilas = no leer el índice si no hizo falta actualizarlo (filas = null).
  */
-function indice_obtener_(forzar) {
+function indice_obtener_(forzar, sinFilas) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const cache = CacheService.getScriptCache();
   const shI = indice_hoja_(ss, INDICE_SHEET_NAME, INDICE_COLS);
@@ -125,7 +130,7 @@ function indice_obtener_(forzar) {
 
   // Revisado hace poco: usar tal cual
   if (!forzar && cache.get('indice_revisado')) {
-    return { filas: indice_leer_(shI, INDICE_COLS.length), rango: rangoDe(indice_leer_(shH, 3)) };
+    return { filas: sinFilas ? null : indice_leer_(shI, INDICE_COLS.length), rango: rangoDe(indice_leer_(shH, 3)) };
   }
 
   // Estado actual de las jornadas (en el orden del libro)
@@ -243,9 +248,20 @@ function handleBuscarEnHojas(params) {
       return traslado_json_({ success: false, message: 'Escribe al menos 4 caracteres', resultados: [] });
     }
     const t0 = Date.now();
-    const idx = indice_obtener_(false);
+    const idx = indice_obtener_(false, true); // al día, sin leer todo el índice
+    const shI = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(INDICE_SHEET_NAME);
+    const last = shI.getLastRow();
+    let filas = idx.filas;
+    if (!filas && last >= 2) {
+      // El buscador de Sheets encuentra las coincidencias sin traer las ~40 mil filas
+      const col = tipo === 'serie' ? 4 : 3; // D = SerieNorm, C = Suministro
+      const celdas = shI.getRange(2, col, last - 1, 1).createTextFinder(q).matchCase(false).findAll();
+      filas = celdas.length <= INDICE_MAX_FILAS_SUELTAS
+        ? celdas.map(function (c) { return shI.getRange(c.getRow(), 1, 1, INDICE_COLS.length).getValues()[0]; })
+        : indice_leer_(shI, INDICE_COLS.length); // muchísimas parciales: leer todo es más rápido
+    }
     const encontrados = [];
-    idx.filas.forEach(function (r) {
+    (filas || []).forEach(function (r) {
       const valor = tipo === 'serie' ? String(r[3]) : correccion_norm_(r[2]);
       if (valor.length < 4 || valor.indexOf(q) < 0) return;
       encontrados.push({
