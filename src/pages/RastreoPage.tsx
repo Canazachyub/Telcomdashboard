@@ -2,7 +2,9 @@
 // Página de Rastreo GPS en Tiempo Real
 // ==========================================
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { IdCard, List } from 'lucide-react';
 import { MapContainer, TileLayer, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -11,6 +13,17 @@ import { useGPSStore, useEntities, useStats, useFilters, useSelectedEntity, useL
 import GPSMarker from '../components/gps/GPSMarker';
 import GPSPanel from '../components/gps/GPSPanel';
 import type { GPSEntity, GPSFilters } from '../types/gps';
+import { CapaRegistrados, ListaRegistrados } from '../components/gps/Registrados';
+import { getCredenciales, prefillDesde, type TecnicoRegistrado } from '../services/credencialesService';
+
+/** Lleva el mapa al lugar donde se registró un técnico. */
+function VolarA({ destino }: { destino: [number, number] | null }) {
+  const map = useMap();
+  useEffect(() => {
+    if (destino) map.flyTo(destino, 16, { duration: 1 });
+  }, [destino, map]);
+  return null;
+}
 
 // Componente para centrar el mapa en una entidad
 function MapController({ selectedEntity }: { selectedEntity: GPSEntity | null }) {
@@ -56,6 +69,33 @@ export default function RastreoPage() {
   const selectedEntity = useSelectedEntity();
   const lastUpdated = useLastUpdated();
   const isLoading = useIsLoading();
+
+  // Técnicos registrados en la app (credencial: correo, foto, lugar de registro)
+  const navigate = useNavigate();
+  const [registrados, setRegistrados] = useState<TecnicoRegistrado[]>([]);
+  const [verRegistrados, setVerRegistrados] = useState(true);
+  const [listaAbierta, setListaAbierta] = useState(false);
+  const [avisoRegistrados, setAvisoRegistrados] = useState<string | null>(null);
+  const [volarA, setVolarA] = useState<[number, number] | null>(null);
+
+  useEffect(() => {
+    let vivo = true;
+    getCredenciales()
+      .then((r) => {
+        if (!vivo) return;
+        setRegistrados(r.tecnicos);
+        setAvisoRegistrados(
+          r.success ? null : r.sinInstalar ? 'Falta instalar «getCredenciales» en el Apps Script' : r.message || 'No se pudo cargar'
+        );
+      })
+      .catch((e) => vivo && setAvisoRegistrados(`Sin conexión: ${(e as Error).message}`));
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  const crearUsuario = (t: TecnicoRegistrado) => navigate('/usuarios', { state: { prefill: prefillDesde(t) } });
+  const conUbicacion = registrados.filter((t) => t.lat != null && t.lng != null).length;
 
   // Referencia para el intervalo de actualización
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -117,7 +157,37 @@ export default function RastreoPage() {
               onClick={handleEntityClick}
             />
           ))}
+
+          {/* Lugar donde cada técnico se registró en la app */}
+          {verRegistrados && <CapaRegistrados tecnicos={registrados} onCrearUsuario={crearUsuario} />}
+          <VolarA destino={volarA} />
         </MapContainer>
+
+        {/* Técnicos registrados en la app (debajo del badge de estado) */}
+        <div className="absolute left-16 top-16 z-[1000] flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setVerRegistrados((v) => !v)}
+            title="Mostrar en el mapa dónde se registró cada técnico (marcador cuadrado con su foto)"
+            className={`flex items-center gap-2 rounded-xl border px-3 py-1.5 text-sm shadow-lg shadow-black/40 backdrop-blur-md ${
+              verRegistrados ? 'border-cyan-400/60 bg-navy-900/85 text-electric' : 'border-line-strong bg-navy-900/85 text-gray-700'
+            }`}
+          >
+            <IdCard size={15} />
+            Registros de la app
+            <span className="font-mono font-semibold">{conUbicacion}</span>
+          </button>
+          <button
+            onClick={() => setListaAbierta(true)}
+            className="flex items-center gap-2 rounded-xl border border-line-strong bg-navy-900/85 px-3 py-1.5 text-sm text-gray-700 shadow-lg shadow-black/40 backdrop-blur-md"
+          >
+            <List size={15} /> Lista ({registrados.length})
+          </button>
+          {avisoRegistrados && (
+            <span className="rounded-xl border border-amber-300/50 bg-navy-900/85 px-3 py-1.5 text-xs text-amber-700">
+              {avisoRegistrados}
+            </span>
+          )}
+        </div>
 
         {/* Badge de estado (a la derecha del control de zoom) */}
         <div className="absolute left-16 top-4 z-[1000] rounded-xl border border-line-strong bg-navy-900/85 px-4 py-2 shadow-lg shadow-black/40 backdrop-blur-md">
@@ -159,6 +229,19 @@ export default function RastreoPage() {
         onEntityClick={handleEntityClick}
         selectedEntity={selectedEntity}
       />
+
+      {listaAbierta && (
+        <ListaRegistrados
+          tecnicos={registrados}
+          onCerrar={() => setListaAbierta(false)}
+          onCrearUsuario={crearUsuario}
+          onVerEnMapa={(t) => {
+            setListaAbierta(false);
+            setVerRegistrados(true);
+            setVolarA([t.lat as number, t.lng as number]);
+          }}
+        />
+      )}
     </div>
   );
 }

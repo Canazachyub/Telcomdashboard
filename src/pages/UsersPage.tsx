@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
+import type { PrefillUsuario } from '../services/credencialesService';
 import { Users, UserPlus, Edit, Trash2, Search, X, Loader2, RefreshCw, AlertTriangle, UserCheck, UserX } from 'lucide-react';
 import { roleLabels, type User, type UserRole } from '../types/user';
 import RoleAvatar from '../components/RoleAvatar';
@@ -55,6 +56,18 @@ export default function UsersPage() {
   const [formData, setFormData] = useState<UserFormData>(emptyForm);
   const [isEditing, setIsEditing] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
+
+  // «Crear usuario» desde Rastreo: abre el formulario con los datos del registro de la app
+  const location = useLocation();
+  useEffect(() => {
+    const prefill = (location.state as { prefill?: PrefillUsuario } | null)?.prefill;
+    if (!prefill) return;
+    setFormData({ ...emptyForm, email: prefill.email, nombre: prefill.nombre, telefono: prefill.telefono, rol: 'tecnico' });
+    setIsEditing(false);
+    setShowModal(true);
+    // Que recargar la página no vuelva a abrirlo
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.state, location.pathname, navigate]);
 
   // Verificar si la sesión ha expirado
   useEffect(() => {
