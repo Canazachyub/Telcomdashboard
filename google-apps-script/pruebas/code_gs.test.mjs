@@ -62,7 +62,12 @@ const ctx = {
   LockService: { getScriptLock: () => ({ waitLock() {}, tryLock: () => true, releaseLock() {} }) },
   ScriptApp: (() => {
     const triggers = [];
-    const b = (fn) => ({ timeBased: () => ({ atHour: () => ({ everyDays: () => ({ create: () => triggers.push(fn) }) }) }) });
+    const b = (fn) => ({
+      timeBased: () => ({
+        atHour: () => ({ everyDays: () => ({ create: () => triggers.push(fn) }) }),
+        everyMinutes: () => ({ create: () => triggers.push(fn) }),
+      }),
+    });
     return { triggers, getProjectTriggers: () => triggers.map((fn) => ({ getHandlerFunction: () => fn })), deleteTrigger: () => {}, newTrigger: b };
   })(),
   Logger: { log: () => {} },
@@ -95,7 +100,7 @@ const ctx = {
   console,
 };
 vm.createContext(ctx);
-vm.runInContext(fs.readFileSync(process.argv[2], 'utf8') + '\n;globalThis.__f={handleBuscarEnHojas,handleTraerSuministro,handleCorregirSuministro,handleRegistrarCredencial,handleGetCredenciales}; globalThis.__f2={instalarIndiceBusqueda};;', ctx);
+vm.runInContext(fs.readFileSync(process.argv[2], 'utf8') + '\n;globalThis.__f={handleBuscarEnHojas,handleTraerSuministro,handleCorregirSuministro,handleRegistrarCredencial,handleGetCredenciales}; globalThis.__f2={instalarIndiceBusqueda,actualizarIndiceBusqueda};;', ctx);
 const { handleBuscarEnHojas, handleTraerSuministro, handleCorregirSuministro, handleRegistrarCredencial, handleGetCredenciales } = ctx.__f;
 vm.runInContext("verifyToken = (t) => (t === 'TOKEN_ADMIN' ? 'admin@x.com' : null);", ctx);
 const j = (r) => JSON.parse(r.getContent());
@@ -211,10 +216,6 @@ const idx = ss.getSheetByName('_Indice');
 assert.ok(idx && idx.oculta, 'el índice es una hoja oculta');
 assert.ok(idx.rows.some((r) => r[2] === '10010000001'), 'el índice tiene los suministros');
 
-// Las pruebas anteriores trajeron un suministro a OSINERMING: esa jornada se relee una vez
-lecturas = 0;
-j(handleBuscarEnHojas({ tipo: 'serie', q: '87654321' }));
-assert.equal(lecturas, 1, 'tras traer, relee solo la jornada destino');
 lecturas = 0;
 r = j(handleBuscarEnHojas({ tipo: 'serie', q: '87654321' }));
 assert.equal(r.resultados[0].suministro, '10010000002');
@@ -252,17 +253,29 @@ r = j(handleBuscarEnHojas({ tipo: 'suministro', q: '10010000077' }));
 assert.equal(r.total, 0);
 console.log('OK jornada borrada sale del índice');
 
-// Traer invalida la jornada destino: se ve al instante
+// Traer reindexa solo la jornada destino, al momento y sin esperar la revisión
+cache.indice_revisado = '1';
 r = j(handleTraerSuministro({ odtId: 'TEC12345', desde: 'SEMANA 1 (renombrada)', hacia: 'OSINERMING', suministro: '10010000003' }));
 assert.equal(r.success, true, r.message);
 r = j(handleBuscarEnHojas({ tipo: 'suministro', q: '10010000003' }));
 assert.ok(r.resultados.some((x) => x.hoja === 'OSINERMING'), 'traer se refleja sin esperar');
+assert.equal(cache.indice_revisado, '1', 'traer no obliga a revisar las 100 jornadas');
 console.log('OK traer actualiza el índice al momento');
 
 // Reconstrucción nocturna e instalación
 lecturas = 0;
 ctx.__f2.instalarIndiceBusqueda();
-assert.deepEqual(ctx.ScriptApp.triggers, ['reconstruirIndiceBusqueda']);
+assert.deepEqual(ctx.ScriptApp.triggers, ['reconstruirIndiceBusqueda', 'actualizarIndiceBusqueda']);
 assert.ok(lecturas >= 2, 'la reconstrucción lee todas las jornadas');
-console.log('OK instalarIndiceBusqueda: arma el índice y programa la reconstrucción diaria');
+console.log('OK instalarIndiceBusqueda: arma el índice, revisión cada 15 min y reconstrucción diaria');
+
+// Disparador de 15 min: detecta una foto nueva sin que nadie busque
+ss.getSheetByName('OSINERMING').rows.push(fila(9, '10070000055', '99990000'));
+cache.indice_revisado = '1';
+ctx.__f2.actualizarIndiceBusqueda();
+lecturas = 0;
+r = j(handleBuscarEnHojas({ tipo: 'serie', q: '99990000' }));
+assert.equal(r.resultados[0]?.suministro, '10070000055');
+assert.equal(lecturas, 0, 'la búsqueda ya no lee jornadas: lo hizo el disparador');
+console.log('OK disparador de 15 min: la búsqueda nunca espera la revisión');
 console.log('TODO OK');

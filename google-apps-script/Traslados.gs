@@ -40,12 +40,14 @@ function traslado_json_(obj) {
 // Recorrer las 100 jornadas tarda ~45 s. El índice guarda suministro y serie de
 // todas; una búsqueda solo lee el índice y vuelve a leer las hojas que cambiaron
 // de nombre o de número de filas (fotos nuevas, suministros traídos, jornadas
-// nuevas). Cada noche se reconstruye completo para recoger ediciones dentro de
-// una fila. Instalación: ejecutar una vez «instalarIndiceBusqueda» en el editor.
+// nuevas). Un disparador revisa los cambios cada 15 min en segundo plano y cada
+// noche lo reconstruye completo (ediciones dentro de una fila). Traer y corregir
+// actualizan su jornada al momento. Instalación: ejecutar una vez
+// «instalarIndiceBusqueda» en el editor.
 const INDICE_SHEET_NAME = '_Indice';
 const INDICE_HOJAS_SHEET_NAME = '_IndiceHojas';
 const INDICE_COLS = ['Hoja', 'SheetId', 'Suministro', 'SerieNorm', 'Serie', 'CodigoRuta', 'Distrito', 'DeLista', 'Fotos'];
-const INDICE_REVISION_SEG = 120; // entre revisiones de cambios, se usa el índice tal cual
+const INDICE_REVISION_SEG = 1200; // la revisión la hace el disparador cada 15 min; esto es el respaldo
 
 /** Filas de índice de una jornada (una por suministro), o null si no es extendida. */
 function indice_filasDeHoja_(sh) {
@@ -167,28 +169,58 @@ function indice_obtener_(forzar) {
   return { filas: filas, rango: rangoDe(actuales) };
 }
 
-/** Marca una jornada para volver a indexarla en la próxima búsqueda (tras escribir en ella). */
+/**
+ * Vuelve a indexar UNA jornada al momento (tras traer o corregir en ella), sin
+ * revisar las demás: la búsqueda siguiente ya la ve.
+ */
 function indice_invalidar_(nombre) {
+  const lock = LockService.getScriptLock();
   try {
-    CacheService.getScriptCache().remove('indice_revisado');
-    const sh = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(INDICE_HOJAS_SHEET_NAME);
-    if (!sh || sh.getLastRow() < 2) return;
-    const v = sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues();
-    for (let i = 0; i < v.length; i++) {
-      if (String(v[i][1]) === nombre) { sh.getRange(i + 2, 3).setValue(-1); break; }
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const shI = ss.getSheetByName(INDICE_SHEET_NAME);
+    const shH = ss.getSheetByName(INDICE_HOJAS_SHEET_NAME);
+    const hoja = ss.getSheetByName(nombre);
+    if (!shI || !shH || !hoja) return; // sin índice todavía: se arma en la próxima búsqueda
+    if (!lock.tryLock(20000)) return;
+    const id = String(hoja.getSheetId());
+    const filas = indice_leer_(shI, INDICE_COLS.length).filter(function (r) { return String(r[1]) !== id; });
+    const nuevas = indice_filasDeHoja_(hoja);
+    indice_escribir_(shI, INDICE_COLS, nuevas ? filas.concat(nuevas) : filas);
+    const hojas = indice_leer_(shH, 3);
+    for (let i = 0; i < hojas.length; i++) {
+      if (String(hojas[i][0]) === id) {
+        shH.getRange(i + 2, 2, 1, 2).setValues([[nombre, hoja.getLastRow()]]);
+        break;
+      }
     }
+    SpreadsheetApp.flush();
   } catch (e) {
-    Logger.log('No se pudo invalidar el índice: ' + e);
+    Logger.log('No se pudo actualizar el índice: ' + e);
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
   }
 }
 
-/** Ejecutar UNA VEZ desde el editor: arma el índice y lo reconstruye cada noche. */
+/**
+ * Ejecutar UNA VEZ desde el editor: arma el índice, lo revisa en segundo plano
+ * cada 15 minutos (así el técnico no espera la revisión) y lo reconstruye cada noche.
+ */
 function instalarIndiceBusqueda() {
+  const nuestras = ['reconstruirIndiceBusqueda', 'actualizarIndiceBusqueda'];
   ScriptApp.getProjectTriggers().forEach(function (t) {
-    if (t.getHandlerFunction() === 'reconstruirIndiceBusqueda') ScriptApp.deleteTrigger(t);
+    if (nuestras.indexOf(t.getHandlerFunction()) >= 0) ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('reconstruirIndiceBusqueda').timeBased().atHour(3).everyDays(1).create();
+  ScriptApp.newTrigger('actualizarIndiceBusqueda').timeBased().everyMinutes(15).create();
   reconstruirIndiceBusqueda();
+}
+
+/** Disparador cada 15 min: revisa qué jornadas cambiaron y las vuelve a indexar. */
+function actualizarIndiceBusqueda() {
+  CacheService.getScriptCache().remove('indice_revisado');
+  const t0 = Date.now();
+  const r = indice_obtener_(false);
+  Logger.log('Índice revisado: ' + r.filas.length + ' suministros en ' + Math.round((Date.now() - t0) / 1000) + ' s');
 }
 
 function reconstruirIndiceBusqueda() {
