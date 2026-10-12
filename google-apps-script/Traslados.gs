@@ -153,7 +153,9 @@ function indice_obtener_(forzar, sinFilas) {
 
   let filas = indice_leer_(shI, INDICE_COLS.length);
   if (forzar || cambiadas.length || borradas.length) {
-    const lock = LockService.getScriptLock();
+    // Candado propio del índice: el del script lo usa savePhoto (espera máx. 10 s);
+    // reescribir el índice nunca debe hacer esperar a un técnico que guarda fotos.
+    const lock = LockService.getUserLock();
     if (!lock.tryLock(30000)) return { filas: filas, rango: rangoDe(actuales) }; // otro lo está actualizando
     try {
       const fuera = {};
@@ -179,7 +181,7 @@ function indice_obtener_(forzar, sinFilas) {
  * revisar las demás: la búsqueda siguiente ya la ve.
  */
 function indice_invalidar_(nombre) {
-  const lock = LockService.getScriptLock();
+  const lock = LockService.getUserLock(); // candado del índice, no el de savePhoto
   try {
     const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
     const shI = ss.getSheetByName(INDICE_SHEET_NAME);

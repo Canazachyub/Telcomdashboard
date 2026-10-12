@@ -75,7 +75,11 @@ const out = (t) => ({ getContent: () => t, setMimeType() { return this; } });
 const ctx = {
   SpreadsheetApp: { openById: () => ss, flush: () => {} },
   ContentService: { createTextOutput: out, MimeType: { JSON: 'json' } },
-  LockService: { getScriptLock: () => ({ waitLock() {}, tryLock: () => true, releaseLock() {} }) },
+  LockService: (() => {
+    const candado = (nombre) => ({ waitLock() { usos.push(nombre); }, tryLock: () => (usos.push(nombre), true), releaseLock() {} });
+    const usos = [];
+    return { usos, getScriptLock: () => candado('script'), getUserLock: () => candado('indice') };
+  })(),
   ScriptApp: (() => {
     const triggers = [];
     const b = (fn) => ({
@@ -116,7 +120,7 @@ const ctx = {
   console,
 };
 vm.createContext(ctx);
-vm.runInContext(fs.readFileSync(process.argv[2], 'utf8') + '\n;globalThis.__f={handleBuscarEnHojas,handleTraerSuministro,handleCorregirSuministro,handleRegistrarCredencial,handleGetCredenciales}; globalThis.__f2={instalarIndiceBusqueda,actualizarIndiceBusqueda};;', ctx);
+vm.runInContext(fs.readFileSync(process.argv[2], 'utf8') + '\n;globalThis.__f={handleBuscarEnHojas,handleTraerSuministro,handleCorregirSuministro,handleRegistrarCredencial,handleGetCredenciales}; globalThis.__f2={instalarIndiceBusqueda,actualizarIndiceBusqueda}; globalThis.__f3={handleGetSheets};;', ctx);
 const { handleBuscarEnHojas, handleTraerSuministro, handleCorregirSuministro, handleRegistrarCredencial, handleGetCredenciales } = ctx.__f;
 vm.runInContext("verifyToken = (t) => (t === 'TOKEN_ADMIN' ? 'admin@x.com' : null);", ctx);
 const j = (r) => JSON.parse(r.getContent());
@@ -305,4 +309,17 @@ assert.equal(r.resultados.length, 20);
 r = j(handleBuscarEnHojas({ tipo: 'suministro', q: '10077770042' }));
 assert.equal(r.resultados[0].exacta, true);
 console.log('OK muchas coincidencias: lee el índice completo; exactas primero');
+// El índice nunca toma el candado del script (el de savePhoto)
+ctx.LockService.usos.length = 0;
+ss.getSheetByName('OSINERMING').rows.push(fila(10, '10070000066', '12121212'));
+ctx.__f2.actualizarIndiceBusqueda();
+ctx.__f2.instalarIndiceBusqueda();
+assert.ok(ctx.LockService.usos.length > 0 && ctx.LockService.usos.every((u) => u === 'indice'), ctx.LockService.usos.join(','));
+console.log('OK el índice usa su propio candado: no hace esperar a savePhoto');
+
+// getSheets no lista las hojas internas nuevas (la app antigua las mostraría como jornada)
+const hojasApi = JSON.parse(ctx.__f3.handleGetSheets().getContent()).map((h) => h.name);
+assert.ok(!hojasApi.some((n) => ['_Indice', '_IndiceHojas', '_Traslados', '_Correcciones'].includes(n)));
+assert.ok(hojasApi.includes('Usuarios') && hojasApi.includes('_ODT_Tecnicos'), 'las de siempre siguen');
+console.log('OK getSheets oculta solo las hojas internas nuevas');
 console.log('TODO OK');
