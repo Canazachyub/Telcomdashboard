@@ -36,6 +36,11 @@ class Sheet {
       getValue: () => self.rows[r - 1]?.[c - 1] ?? '',
       setFontWeight: () => rango, setBackground: () => rango, setFormula: () => rango,
       setNumberFormat: () => rango,
+      clearContent: () => {
+        for (let i = 0; i < nr; i++) for (let k = 0; k < nc; k++) if (self.rows[r - 1 + i]) self.rows[r - 1 + i][c - 1 + k] = '';
+        while (self.rows.length && self.rows[self.rows.length - 1].every((x) => x === '' || x == null)) self.rows.pop();
+        return rango;
+      },
       createTextFinder: (q) => ({
         matchCase() { return this; },
         findAll: () => {
@@ -120,7 +125,7 @@ const ctx = {
   console,
 };
 vm.createContext(ctx);
-vm.runInContext(fs.readFileSync(process.argv[2], 'utf8') + '\n;globalThis.__f={handleBuscarEnHojas,handleTraerSuministro,handleCorregirSuministro,handleRegistrarCredencial,handleGetCredenciales}; globalThis.__f2={instalarIndiceBusqueda,actualizarIndiceBusqueda}; globalThis.__f3={handleGetSheets};;', ctx);
+vm.runInContext(fs.readFileSync(process.argv[2], 'utf8') + '\n;globalThis.__f={handleBuscarEnHojas,handleTraerSuministro,handleCorregirSuministro,handleRegistrarCredencial,handleGetCredenciales}; globalThis.__f2={instalarIndiceBusqueda,actualizarIndiceBusqueda,reconstruirIndiceBusqueda}; globalThis.__f3={handleGetSheets};;', ctx);
 const { handleBuscarEnHojas, handleTraerSuministro, handleCorregirSuministro, handleRegistrarCredencial, handleGetCredenciales } = ctx.__f;
 vm.runInContext("verifyToken = (t) => (t === 'TOKEN_ADMIN' ? 'admin@x.com' : null);", ctx);
 const j = (r) => JSON.parse(r.getContent());
@@ -322,4 +327,20 @@ const hojasApi = JSON.parse(ctx.__f3.handleGetSheets().getContent()).map((h) => 
 assert.ok(!hojasApi.some((n) => ['_Indice', '_IndiceHojas', '_Traslados', '_Correcciones'].includes(n)));
 assert.ok(hojasApi.includes('Usuarios') && hojasApi.includes('_ODT_Tecnicos'), 'las de siempre siguen');
 console.log('OK getSheets oculta solo las hojas internas nuevas');
+// Reescribir el índice nunca deja la hoja vacía ni con filas viejas sobrantes
+{
+  const shI = ss.getSheetByName('_Indice');
+  const antes = shI.rows.length;
+  let minimo = Infinity;
+  const orig = shI.getRange.bind(shI);
+  shI.getRange = (...a) => { minimo = Math.min(minimo, shI.rows.length); return orig(...a); };
+  ctx.__f2.reconstruirIndiceBusqueda();
+  shI.getRange = orig;
+  assert.ok(minimo > 1, 'la hoja del índice nunca queda vacía al reescribirla');
+  assert.equal(shI.rows.length, antes, 'mismo número de filas tras reconstruir');
+  ss.getSheetByName('OSINERMING').rows.splice(-70);
+  ctx.__f2.reconstruirIndiceBusqueda();
+  assert.equal(shI.rows.length, antes - 70, 'las filas que sobran se borran');
+  console.log('OK índice: se reescribe sin quedar vacío y borra lo que sobra');
+}
 console.log('TODO OK');

@@ -103,12 +103,15 @@ function indice_leer_(sh, ancho) {
 }
 
 function indice_escribir_(sh, cols, filas) {
-  sh.clearContents();
+  // Se escribe encima y luego se borra lo que sobra: la hoja nunca queda vacía, así
+  // quien busca o revisa al mismo tiempo siempre lee un índice completo.
   sh.getRange(1, 1, 1, cols.length).setValues([cols]);
   if (filas.length) {
     // Texto plano: que Sheets no convierta códigos en números ni quite ceros
     sh.getRange(2, 1, filas.length, cols.length).setNumberFormat('@').setValues(filas);
   }
+  const sobran = sh.getLastRow() - 1 - filas.length;
+  if (sobran > 0) sh.getRange(filas.length + 2, 1, sobran, cols.length).clearContent();
 }
 
 /**
@@ -143,21 +146,33 @@ function indice_obtener_(forzar, sinFilas) {
     actuales.push([id, n, s.getLastRow()]);
     porId[id] = s;
   });
-  const antes = {};
-  indice_leer_(shH, 3).forEach(function (h) { antes[String(h[0])] = h; });
-  const cambiadas = actuales.filter(function (h) {
-    const a = antes[h[0]];
-    return forzar || !a || String(a[1]) !== h[1] || Number(a[2]) !== h[2];
-  }).map(function (h) { return h[0]; });
-  const borradas = Object.keys(antes).filter(function (id) { return !porId[id]; });
+  const cambiosDesde = function (antes) {
+    const cambiadas = actuales.filter(function (h) {
+      const a = antes[h[0]];
+      return forzar || !a || String(a[1]) !== h[1] || Number(a[2]) !== h[2];
+    }).map(function (h) { return h[0]; });
+    const borradas = Object.keys(antes).filter(function (id) { return !porId[id]; });
+    return { cambiadas: cambiadas, borradas: borradas };
+  };
+  const leerAntes = function () {
+    const antes = {};
+    indice_leer_(shH, 3).forEach(function (h) { antes[String(h[0])] = h; });
+    return antes;
+  };
 
   let filas = indice_leer_(shI, INDICE_COLS.length);
-  if (forzar || cambiadas.length || borradas.length) {
+  let cambios = cambiosDesde(leerAntes());
+  if (forzar || cambios.cambiadas.length || cambios.borradas.length) {
     // Candado propio del índice: el del script lo usa savePhoto (espera máx. 10 s);
     // reescribir el índice nunca debe hacer esperar a un técnico que guarda fotos.
     const lock = LockService.getUserLock();
     if (!lock.tryLock(30000)) return { filas: filas, rango: rangoDe(actuales) }; // otro lo está actualizando
     try {
+      // Releer ya con el candado: otro pudo actualizar el índice mientras esperábamos
+      filas = indice_leer_(shI, INDICE_COLS.length);
+      cambios = cambiosDesde(leerAntes());
+      const cambiadas = cambios.cambiadas;
+      const borradas = cambios.borradas;
       const fuera = {};
       cambiadas.concat(borradas).forEach(function (id) { fuera[id] = true; });
       filas = filas.filter(function (r) { return !fuera[String(r[1])]; });
