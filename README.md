@@ -20,7 +20,7 @@ Dashboard web para supervision y gestion de jornadas de trabajo de campo. Comple
 │  ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐ │
 │  │  Dashboard │ │    Mapa    │ │ Suministros│ │  Jornadas  │ │  Usuarios  │ │
 │  │(Estadistic)│ │(Leaflet +  │ │ (Tabla +   │ │ (CRUD de   │ │ (Solo      │ │
-│  │            │ │  Draw)     │ │  filtros)  │ │  hojas)    │ │  ADMIN)    │ │
+│  │            │ │ recuadro)  │ │  filtros)  │ │  hojas)    │ │  ADMIN)    │ │
 │  └────────────┘ └────────────┘ └────────────┘ └────────────┘ └────────────┘ │
 └─────────────────────────────────────────────────────────────────────────────┘
                                       │
@@ -267,9 +267,11 @@ Para hojas antiguas de la app movil.
 
 ### Archivo Backend
 
-```
-c:\PROGRAMACION\Apptelcom\timestamp_camera\google_apps_script\Code.gs
-```
+- `Code.gs` en la raiz del repo (**fuera de git**, contiene secretos): es la copia completa que se pega
+  en el editor de Apps Script y se despliega como "Nueva version" (la URL no cambia).
+- `google-apps-script/*.gs`: copias de referencia de las secciones nuevas (correcciones, traslados e
+  indice de busqueda, credenciales, miniaturas).
+- Reglas de produccion y pruebas del backend: ver [`CLAUDE.md`](CLAUDE.md).
 
 ### GET Endpoints
 
@@ -284,6 +286,9 @@ c:\PROGRAMACION\Apptelcom\timestamp_camera\google_apps_script\Code.gs
 | `initUsersSheet` | - | Crear hoja Usuarios con admin |
 | `getSuministrosByTecnico` | `sheetName`, `tecnico` | Suministros asignados a un tecnico |
 | `getTrackingFromPhotos` | - | **NEW v1.6.0** Ubicacion de tecnicos basada en ultima foto |
+| `buscarEnHojas` | `tipo` (`suministro`/`serie`), `q` | **v2.0** Busca en todas las jornadas usando el indice oculto `_Indice` |
+| `getImageBase64` | `fileId` | Foto de Drive en base64 (evita CORS) |
+| `getImageThumb` | `fileId` | **v2.0** Miniatura de Drive (hoy pesa igual que la original; sin uso en el dashboard) |
 
 ### POST Endpoints
 
@@ -300,6 +305,12 @@ c:\PROGRAMACION\Apptelcom\timestamp_camera\google_apps_script\Code.gs
 { "action": "createSheet", "sheetName": "..." }
 { "action": "uploadSuministros", "sheetName": "...", "createNew": true, "suministros": [...] }
 { "action": "assignTecnico", "sheetName": "...", "suministros": [...], "tecnicoNombre": "..." }
+
+// v2.0 (aditivas; detalle de campos en google-apps-script/*.gs)
+{ "action": "corregirSuministro", ... }   // token admin/supervisor, o odtId de tecnico
+{ "action": "traerSuministro", ... }      // copia un suministro de otra jornada
+{ "action": "registrarCredencial", ... }  // correo, ubicacion y foto del tecnico
+{ "action": "getCredenciales", "token": "..." }
 ```
 
 ---
@@ -308,21 +319,34 @@ c:\PROGRAMACION\Apptelcom\timestamp_camera\google_apps_script\Code.gs
 
 ### 1. Dashboard (DashboardPage.tsx)
 - Estadisticas generales: total, pendientes, en proceso, completados
-- Grafico de progreso por tecnico
-- Grafico de avance por distrito
+- **Anillo de avance** pintado por quien lleno cada suministro + proyeccion ("Al ritmo de esta
+  semana: ~N dias de trabajo"; al pasar el cursor muestra el calculo)
+- **Ritmo diario interactivo** (14 dias): el cursor muestra el detalle del dia; capas Area / Barras /
+  Lineas por tecnico; tocar un tecnico lo oculta y recalcula
+- **Lo ultimo que se hizo**: muro con la foto mas reciente de cada suministro (abre galeria o ficha)
+- Quien la lleno (dona interactiva) y avance por distrito (anillos) o perfil radar por tecnico
 - Selector de jornada activa
+
+### 1b. Resumen de jornadas (ResumenJornadasPage.tsx) - v2.0
+- Las 5/6/8/10 jornadas con fotos mas recientes (revisa las ultimas 20; "Buscar en 15 jornadas mas")
+- Un anillo por jornada con quien la lleno y su proyeccion; clic abre la jornada en el Dashboard
+- Ritmo diario del equipo, participacion por tecnico, perfil radar (volumen, constancia, ritmo,
+  jornadas, fotos por suministro) y muro de ultimas fotos de todas las jornadas
+- Detalle en tablas al final (opcional)
 
 ### 2. Mapa Interactivo (MapPage.tsx)
 - Visualizacion de todos los puntos con coordenadas
 - Marcadores coloreados por estado (rojo/amarillo/verde)
 - Panel de filtros colapsable: estado, tecnico, distrito, busqueda
-- **Asignacion de tecnicos por area:**
-  1. Click en boton "Asignar" (verde)
-  2. Dibujar poligono de 3-5 puntos en el mapa
-  3. El sistema detecta automaticamente los puntos dentro del area
-  4. Modal para seleccionar tecnico de la lista
-  5. Asignacion en lote (actualiza columna B: TECNICO)
-- Ver fotos desde popup del marcador
+- **Asignacion de tecnicos por area (v2.0, estilo juego de estrategia):**
+  1. Boton "Asignar area"
+  2. Arrastrar un recuadro sobre el mapa (Shift suma, Alt quita, clic en un punto lo marca,
+     Espacio + arrastrar mueve el mapa)
+  3. Barra de mando abajo: tecnico con tecla 1-9, filtros "Solo pendientes" / "No reasignar"
+  4. Enter (o el boton) asigna en lote con `assignTecnico` (columna B: TECNICO); Esc limpia
+- Miniaturas de las fotos en el popup del marcador; la galeria abre en la foto elegida
+- Suministros mal escritos: sugerencia por cercania y por serie del medidor, correccion con
+  `corregirSuministro`; "Hechos en otras jornadas" y "Traer a esta jornada"
 
 ### 3. Suministros (SuministrosPage.tsx)
 - Tabla paginada con todos los suministros
@@ -624,17 +648,36 @@ La app movil Flutter v2.2.0 ahora incluye:
 | Archivo | Proposito |
 |---------|-----------|
 | `src/config/api.ts` | URLs de APIs |
+| `CLAUDE.md` | Reglas de produccion, backend y comandos (leer primero) |
 | `src/pages/MapPage.tsx` | Mapa + asignacion de tecnicos |
+| `src/components/map/SeleccionCaja.tsx` | Seleccion por recuadro en el mapa |
+| `src/components/map/BarraAsignacion.tsx` | Barra de mando para asignar |
+| `src/pages/ResumenJornadasPage.tsx` | Resumen de varias jornadas |
+| `src/components/resumen/Graficos.tsx` | Graficos SVG interactivos (sin librerias) |
+| `src/utils/resumenJornadas.ts` | Calculos: avance, quien lleno, ritmo, proyeccion, ultimas fotos |
+| `src/utils/imageCache.ts` | Cache de fotos (memoria + navegador) |
 | `src/pages/SuministrosPage.tsx` | Tabla + subir Excel |
 | `src/stores/pointsStore.ts` | Estado global de puntos |
 | `src/stores/authStore.ts` | Estado de autenticacion |
 | `src/services/tecnicoService.ts` | Asignacion de tecnicos |
 | `src/types/point.ts` | Tipos + getPointStatus |
-| `Code.gs` | Backend completo |
+| `Code.gs` | Backend completo (raiz, fuera de git) |
 
 ---
 
 ## Historial de Cambios Recientes
+
+### v2.0.0 (12-14/10/2026) - App reconstruida, busqueda global y analisis de jornadas
+
+- **App movil** reconstruida en Flutter: "TELCOM Operaciones" (`com.telcom.operaciones`), se
+  instala al lado de la app vieja, que sigue en uso. Ver `CLAUDE.md`.
+- **Backend (aditivo):** `corregirSuministro`, `buscarEnHojas` con indice oculto
+  (`_Indice`/`_IndiceHojas`, disparadores cada 15 min y 3 a.m.), `traerSuministro`,
+  `registrarCredencial`/`getCredenciales`, `getImageThumb`; `getSheets` ya no lista las hojas
+  internas nuevas; el indice no bloquea `savePhoto` y se reescribe sin quedar vacio.
+- **Dashboard:** Resumen de jornadas; Dashboard con graficos interactivos y muro de ultimas fotos;
+  asignacion por recuadro con teclas; fotos con cache persistente y precarga; credenciales en
+  Rastreo GPS y prefill en Usuarios; correccion de suministros sugerida por serie.
 
 ### v1.6.1 (05/03/2026) - Correccion texto de supervision en PDFs
 

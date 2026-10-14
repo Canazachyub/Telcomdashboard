@@ -103,3 +103,24 @@ APP_NAME                 | TELCOM Dashboard                               | Nomb
    - nombre: `Administrador`
    - rol: `admin`
    - activo: `TRUE`
+
+---
+
+## Hojas internas del sistema (v2.0, octubre 2026)
+
+Las crea `Code.gs` solas; empiezan con «_», están ocultas y la app nunca las muestra como jornadas
+(`getSheets` excluye `_Indice`, `_IndiceHojas`, `_Traslados` y `_Correcciones`).
+
+| Hoja | Para qué | Columnas |
+|---|---|---|
+| `_ODT_Tecnicos` | Perfil de cada celular con la app (ID de 8 caracteres, nombre, teléfono, última foto, GPS, conteo) | A–G de siempre; **H–N** credencial: Correo, Lat_Registro, Lng_Registro, Precision_m, Ubicacion_Registro, Foto_Credencial, Fecha_Credencial |
+| `_Correcciones` | Registro de cada corrección de código de suministro (`corregirSuministro`) | Fecha, Usuario, Rol, Jornada, Fila, Suministro escrito, Suministro correcto, Datos de la lista copiados, Valores anteriores B–W (JSON) |
+| `_Traslados` | Registro de suministros traídos de otra jornada (`traerSuministro`) | Fecha, Usuario, Rol, Desde (jornada), Hacia (jornada), Suministro, Fila nueva |
+| `_Indice` | Índice de búsqueda: un renglón por suministro de cada jornada | Hoja, SheetId, Suministro, SerieNorm, Serie, CodigoRuta, Distrito, DeLista, Fotos |
+| `_IndiceHojas` | Estado de cada jornada al indexarla (para releer solo las que cambiaron) | SheetId, Hoja, Filas |
+
+- El índice lo mantienen dos disparadores: `actualizarIndiceBusqueda` cada 15 min y
+  `reconstruirIndiceBusqueda` a las 3 a.m. (instalar una vez con `instalarIndiceBusqueda`).
+- Si la búsqueda deja de encontrar suministros, ejecutar `reconstruirIndiceBusqueda` en el editor (~2 min).
+- Las fotos de credencial van a la carpeta privada `_Credenciales` de Drive.
+- No borrar ni editar a mano estas hojas.
