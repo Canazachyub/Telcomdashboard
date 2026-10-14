@@ -8,20 +8,17 @@ import PhotoStrip from '../components/PhotoStrip';
 import { cargarJornadas, normSuministro, ocurrenciaDe, primeCache, puntosEnCache, type Ocurrencia } from '../services/suministroHistory';
 import { brandAsset } from '../config/brand';
 import TecnicoProgressPanel from '../components/map/TecnicoProgressPanel';
-import AssignAreaPanel from '../components/map/AssignAreaPanel';
+import BarraAsignacion from '../components/map/BarraAsignacion';
+import SeleccionCaja, { type ModoSeleccion } from '../components/map/SeleccionCaja';
 import { initialOf } from '../components/map/techUtils';
 import OutOfPeruModal from '../components/map/OutOfPeruModal';
 import { isInPeru } from '../utils/geo';
 import DailyCalendarPanel from '../components/map/DailyCalendarPanel';
 import { computeDailyProgress } from '../components/map/dailyProgress';
-import { useState, useMemo, useEffect, useRef } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap, FeatureGroup } from 'react-leaflet';
-import { EditControl } from 'react-leaflet-draw';
-import { Icon, DivIcon, LatLngBounds, LatLng } from 'leaflet';
-import type { FeatureGroup as FeatureGroupType } from 'leaflet';
+import { useState, useMemo, useEffect } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, useMap, CircleMarker } from 'react-leaflet';
+import { Icon, DivIcon, LatLngBounds } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import 'leaflet-draw/dist/leaflet.draw.css';
-import '../components/map/drawLocale';
 import { usePointsStore, useFilters, useTecnicos, useDistritos, useSheetStructure, useIsTecnico } from '../stores/pointsStore';
 import { MAP_CONFIG } from '../config/api';
 import { getPointStatus, getStatusColor, getStatusLabel } from '../types/point';
@@ -346,6 +343,7 @@ export default function MapPage() {
 
   // Local state
   const [selectedPoint, setSelectedPoint] = useState<GpsPoint | GpsPointExtended | null>(null);
+  const [fotoInicial, setFotoInicial] = useState(0);
   const [highlightedPointId, setHighlightedPointId] = useState<string | null>(null);
   const [autoFit, setAutoFit] = useState(true);
   const [filterPanelOpen, setFilterPanelOpen] = useState(false);
@@ -353,8 +351,7 @@ export default function MapPage() {
 
   // Drawing mode state
   const [isDrawingMode, setIsDrawingMode] = useState(false);
-  const [selectedPointsForAssign, setSelectedPointsForAssign] = useState<(GpsPoint | GpsPointExtended)[]>([]);
-  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [seleccion, setSeleccion] = useState<Set<GpsPoint | GpsPointExtended>>(() => new Set());
   const openFicha = useSuministroDrawer((st) => st.open);
   const [showOutOfPeru, setShowOutOfPeru] = useState(false);
   const [showDaily, setShowDaily] = useState(false);
@@ -367,8 +364,6 @@ export default function MapPage() {
   const [comp, setComp] = useState<Comparacion | null>(null);
   const [verCorr, setVerCorr] = useState(0); // fuerza releer las correcciones guardadas
   const [dayFilter, setDayFilter] = useState<string | null>(null);
-  const [drawnLayer, setDrawnLayer] = useState<{ remove: () => void } | null>(null);
-  const featureGroupRef = useRef<FeatureGroupType | null>(null);
 
   // Local filters (synced with store)
   const [localFilters, setLocalFilters] = useState({
@@ -485,68 +480,6 @@ export default function MapPage() {
     setAutoFit(true);
   };
 
-  // Handle drawing created - find points inside the drawn shape
-  const handleDrawCreated = (e: any) => {
-    const layer = e.layer;
-    const drawnShape = layer.getLatLngs ? layer.getLatLngs()[0] : null;
-
-    if (!drawnShape) return;
-
-    // Find all points inside the drawn polygon/rectangle
-    const pointsInside = visiblePoints.filter((point) => {
-      const lat = point.latReal || point.latRef;
-      const lng = point.longReal || point.longRef;
-      if (!lat || !lng) return false;
-
-      // Check if point is inside the polygon
-      return isPointInPolygon({ lat, lng }, drawnShape);
-    });
-
-    setIsDrawingMode(false);
-    if (pointsInside.length > 0) {
-      // El área queda dibujada mientras el panel de asignación está abierto
-      setDrawnLayer(layer);
-      setSelectedPointsForAssign(pointsInside);
-      setShowAssignModal(true);
-    } else if (featureGroupRef.current) {
-      featureGroupRef.current.clearLayers();
-    }
-  };
-
-  // Check if a point is inside a polygon using ray casting algorithm
-  const isPointInPolygon = (point: { lat: number; lng: number }, polygon: LatLng[]) => {
-    let inside = false;
-    const x = point.lng;
-    const y = point.lat;
-
-    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-      const xi = polygon[i].lng;
-      const yi = polygon[i].lat;
-      const xj = polygon[j].lng;
-      const yj = polygon[j].lat;
-
-      if (((yi > y) !== (yj > y)) && (x < ((xj - xi) * (y - yi)) / (yj - yi) + xi)) {
-        inside = !inside;
-      }
-    }
-
-    return inside;
-  };
-
-  // Toggle drawing mode
-  const toggleDrawingMode = () => {
-    setIsDrawingMode(!isDrawingMode);
-    setSelectedPointsForAssign([]);
-  };
-
-  const closeAssignPanel = () => {
-    setShowAssignModal(false);
-    setSelectedPointsForAssign([]);
-    drawnLayer?.remove();
-    setDrawnLayer(null);
-    featureGroupRef.current?.clearLayers();
-  };
-
   // Puntos de toda la jornada con coordenadas (para el avance por técnico)
   const allMapPoints = useMemo(
     () => (pointsExtended.length ? pointsExtended : filteredPoints).filter(
@@ -574,6 +507,39 @@ export default function MapPage() {
   const dayFilterLabel = dayFilter
     ? new Date(`${dayFilter}T12:00:00`).toLocaleDateString('es-PE', { weekday: 'short', day: 'numeric', month: 'short' })
     : '';
+
+  const coordsDe = (p: GpsPoint | GpsPointExtended): [number, number] | null => {
+    const lat = toNumberOrNull(p.latReal) || toNumberOrNull(p.latRef);
+    const lng = toNumberOrNull(p.longReal) || toNumberOrNull(p.longRef);
+    return lat && lng ? [lat, lng] : null;
+  };
+
+  // Recuadro terminado: combina los puntos que quedaron dentro con la selección actual
+  const handleSeleccion = (bounds: LatLngBounds, modo: ModoSeleccion) => {
+    const dentro = displayPoints.filter((p) => {
+      const c = coordsDe(p);
+      return !!c && bounds.contains(c);
+    });
+    setSeleccion((prev) => {
+      const s = modo === 'nuevo' ? new Set<GpsPoint | GpsPointExtended>() : new Set(prev);
+      dentro.forEach((p) => (modo === 'quitar' ? s.delete(p) : s.add(p)));
+      return s;
+    });
+  };
+  const alternarPunto = (p: GpsPoint | GpsPointExtended) =>
+    setSeleccion((prev) => {
+      const s = new Set(prev);
+      if (s.has(p)) s.delete(p);
+      else s.add(p);
+      return s;
+    });
+
+  // Activar o salir del modo de asignación
+  const toggleDrawingMode = () => {
+    setIsDrawingMode(!isDrawingMode);
+    setSeleccion(new Set());
+  };
+
 
   // Revisa las demás jornadas y guarda, por suministro, dónde ya tiene fotos
   const verificarOtras = async () => {
@@ -604,7 +570,7 @@ export default function MapPage() {
 
   // Handle assignment complete - refresh data
   const handleAssignComplete = () => {
-    setSelectedPointsForAssign([]);
+    setSeleccion(new Set());
     // Refresh points data
     if (selectedSheet) {
       loadPointsExtended(selectedSheet);
@@ -728,7 +694,7 @@ export default function MapPage() {
             onClick={() => {
               if (showDaily) setDayFilter(null);
               setShowDaily((v) => !v);
-              setShowAssignModal(false);
+              setIsDrawingMode(false);
             }}
             className={`flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors ${
               showDaily ? 'border-electric text-electric' : 'border-gray-300 text-gray-700 hover:border-electric hover:text-electric'
@@ -757,10 +723,10 @@ export default function MapPage() {
                   ? 'bg-green-500 text-white shadow-[0_0_0_3px_rgb(16_185_129/0.25)]'
                   : 'bg-blue-600 text-white hover:brightness-110'
               }`}
-              title="Dibujar area para asignar tecnico"
+              title="Seleccionar puntos en el mapa y asignarlos a un técnico"
             >
               <Pencil size={16} />
-              {isDrawingMode ? 'Dibujando…' : 'Asignar área'}
+              {isDrawingMode ? 'Salir de asignar' : 'Asignar área'}
             </button>
           )}
         </div>
@@ -795,46 +761,20 @@ export default function MapPage() {
           />
           {comp && <CompararCapa comp={comp} />}
 
-          {/* Drawing controls - Solo rectángulo para mayor velocidad */}
-          <FeatureGroup ref={featureGroupRef}>
-            {isDrawingMode && (
-              <EditControl
-                key="draw-control"
-                position="topleft"
-                onCreated={handleDrawCreated}
-                draw={{
-                  polyline: false,
-                  polygon: {
-                    allowIntersection: false,
-                    showArea: false,
-                    shapeOptions: {
-                      color: '#00d4ff',
-                      weight: 2,
-                      dashArray: '6 6',
-                      fillColor: '#2563eb',
-                      fillOpacity: 0.15,
-                    },
-                  },
-                  rectangle: {
-                    shapeOptions: {
-                      color: '#00d4ff',
-                      weight: 2,
-                      dashArray: '6 6',
-                      fillColor: '#2563eb',
-                      fillOpacity: 0.15,
-                    },
-                  },
-                  circle: false,
-                  marker: false,
-                  circlemarker: false,
-                }}
-                edit={{
-                  edit: false,
-                  remove: false,
-                }}
-              />
-            )}
-          </FeatureGroup>
+          <SeleccionCaja activo={isDrawingMode} onSeleccion={handleSeleccion} />
+          {isDrawingMode &&
+            [...seleccion].map((p, i) => {
+              const c = coordsDe(p);
+              return c ? (
+                <CircleMarker
+                  key={`sel-${p.suministro}-${i}`}
+                  center={c}
+                  radius={15}
+                  interactive={false}
+                  pathOptions={{ color: '#00d4ff', weight: 2.5, fillColor: '#00d4ff', fillOpacity: 0.15 }}
+                />
+              ) : null;
+            })}
 
           {displayPoints.map((point, index) => {
             const lat = toNumberOrNull(point.latReal) || toNumberOrNull(point.latRef);
@@ -857,9 +797,10 @@ export default function MapPage() {
                 position={[lat, lng]}
                 icon={icon}
                 eventHandlers={{
-                  click: () => setHighlightedPointId(point.suministro),
+                  click: () => (isDrawingMode ? alternarPunto(point) : setHighlightedPointId(point.suministro)),
                 }}
               >
+                {!isDrawingMode && (
                 <Popup>
                   <div className="min-w-[240px]">
                     <div className="mb-3 flex items-start justify-between gap-3 border-b border-gray-200 pb-2">
@@ -925,6 +866,21 @@ export default function MapPage() {
                       </dd>
                     </dl>
 
+                    {/* Las fotos a la vista: se cargan livianas al abrir el globo */}
+                    {(point.photoLinks?.length || 0) > 0 && (
+                      <div className="mt-3">
+                        <PhotoStrip
+                          photos={point.photoLinks || []}
+                          max={4}
+                          size={52}
+                          onOpen={(i) => {
+                            setFotoInicial(Math.min(i, (point.photoLinks?.length || 1) - 1));
+                            setSelectedPoint(point);
+                          }}
+                        />
+                      </div>
+                    )}
+
                     {esSospechoso && (
                       <button
                         onClick={() => setShowSospechosos(true)}
@@ -986,7 +942,10 @@ export default function MapPage() {
                     </button>
                     {point.photoCount > 0 && (
                       <button
-                        onClick={() => setSelectedPoint(point)}
+                        onClick={() => {
+                          setFotoInicial(0);
+                          setSelectedPoint(point);
+                        }}
                         className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:brightness-110"
                       >
                         <Camera size={14} />
@@ -995,6 +954,7 @@ export default function MapPage() {
                     )}
                   </div>
                 </Popup>
+                )}
               </Marker>
             );
           })}
@@ -1016,15 +976,8 @@ export default function MapPage() {
           isTecnico={isTecnico}
         />
 
-        {/* Ayuda mientras se dibuja */}
-        {isDrawingMode && (
-          <div className="absolute left-1/2 top-4 z-[600] -translate-x-1/2 rounded-xl border border-electric/40 bg-navy-900/95 px-4 py-2.5 text-center text-sm text-gray-800 shadow-xl backdrop-blur">
-            Dibuja un <b>polígono</b> o <b>rectángulo</b> (botones de la izquierda) alrededor de los puntos a asignar
-          </div>
-        )}
-
         {/* Calendario de avance diario */}
-        {showDaily && !showAssignModal && (
+        {showDaily && !isDrawingMode && (
           <DailyCalendarPanel
             points={allMapPoints}
             sheetName={selectedSheet || ''}
@@ -1043,7 +996,7 @@ export default function MapPage() {
         )}
 
         {/* Avance por técnico (clic = filtrar) */}
-        {!showAssignModal && !filterPanelOpen && !showDaily && (
+        {!isDrawingMode && !filterPanelOpen && !showDaily && (
           <TecnicoProgressPanel
             points={allMapPoints}
             activeTecnico={localFilters.tecnico}
@@ -1051,19 +1004,21 @@ export default function MapPage() {
           />
         )}
 
-        {/* Panel de asignación del área dibujada */}
-        {showAssignModal && (
-          <AssignAreaPanel
-            areaPoints={selectedPointsForAssign}
+        {/* Barra de mando para asignar la selección */}
+        {isDrawingMode && (
+          <BarraAsignacion
+            seleccion={[...seleccion]}
             allPoints={allMapPoints}
             sheetName={selectedSheet || ''}
-            onClose={closeAssignPanel}
-            onAssignComplete={handleAssignComplete}
+            onLimpiar={() => setSeleccion(new Set())}
+            onAsignado={handleAssignComplete}
           />
         )}
 
         {/* Leyenda */}
-        <div className="absolute bottom-4 left-4 z-[500] rounded-xl border border-gray-200 bg-navy-900/90 p-3 shadow-lg backdrop-blur">
+        <div
+          className={`absolute bottom-4 left-4 z-[500] rounded-xl border border-gray-200 bg-navy-900/90 p-3 shadow-lg backdrop-blur ${isDrawingMode ? 'hidden' : ''}`}
+        >
           <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500">Leyenda</p>
           <div className="space-y-1.5">
             {[
@@ -1156,6 +1111,7 @@ export default function MapPage() {
           <PhotoGalleryModal
             photos={selectedPoint.photoLinks || []}
             suministro={String(selectedPoint.suministro)}
+            initialIndex={fotoInicial}
             onClose={() => setSelectedPoint(null)}
           />
         </div>
@@ -1172,29 +1128,6 @@ export default function MapPage() {
           0%, 100% { box-shadow: 0 0 0 4px rgba(0,212,255,.25), 0 2px 6px rgba(0,0,0,.45); }
           50% { box-shadow: 0 0 0 10px rgba(0,212,255,0), 0 2px 6px rgba(0,0,0,.45); }
         }
-        .leaflet-draw-toolbar { margin-top: 10px !important; }
-        .leaflet-draw-toolbar { border: 0 !important; box-shadow: 0 0 0 2px rgba(0,212,255,.6), 0 8px 20px rgba(0,0,0,.45) !important; border-radius: 10px !important; overflow: hidden; }
-        .leaflet-draw-toolbar a {
-          background-color: #eef3fa !important;
-          border-bottom: 1px solid #c5d0e2 !important;
-          width: 40px !important;
-          height: 40px !important;
-          background-position-y: 9px !important;
-        }
-        .leaflet-draw-toolbar a:hover { background-color: #bff6ff !important; }
-        .leaflet-draw-actions {
-          border-radius: 8px !important;
-          overflow: hidden;
-          box-shadow: 0 8px 24px rgba(0,0,0,.4) !important;
-        }
-        .leaflet-draw-actions a {
-          background-color: #0d1b31 !important;
-          color: #c5d0e2 !important;
-          border-color: #1f3454 !important;
-        }
-        .leaflet-draw-actions a:hover { background-color: #10b981 !important; color: #fff !important; }
-        .leaflet-draw-tooltip { background: #0a1628; border-color: #2a4268; color: #eef3fa; }
-        .leaflet-draw-tooltip:before { border-right-color: #0a1628; }
       `}</style>
     </div>
   );

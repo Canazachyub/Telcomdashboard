@@ -12,6 +12,7 @@ import ReportesObservadosPage from './pages/ReportesObservadosPage';
 import InventoryPage from './pages/InventoryPage';
 import RastreoPage from './pages/RastreoPage';
 import CruceJornadasPage from './pages/CruceJornadasPage';
+import ResumenJornadasPage from './pages/ResumenJornadasPage';
 
 // Basename derivado de `base` en vite.config.ts ('/Telcomdashboard/' -> '/Telcomdashboard')
 const ROUTER_BASENAME = import.meta.env.BASE_URL.replace(/\/$/, '') || '/';
@@ -89,6 +90,14 @@ function App() {
             element={
               <SupervisorRoute>
                 <ReportesPage />
+              </SupervisorRoute>
+            }
+          />
+          <Route
+            path="resumen"
+            element={
+              <SupervisorRoute>
+                <ResumenJornadasPage />
               </SupervisorRoute>
             }
           />

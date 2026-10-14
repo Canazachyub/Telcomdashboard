@@ -91,7 +91,9 @@ export const ordenar = (xs: Ocurrencia[]) =>
 export async function cargarJornadas(
   jornadas: string[],
   onProgress?: (hechas: number, total: number) => void,
+  forzar = false,
 ): Promise<Map<string, GpsPointExtended[]>> {
+  if (forzar) jornadas.forEach((j) => cache.delete(j));
   const res = new Map<string, GpsPointExtended[]>();
   let hechas = 0;
   const cola = [...jornadas];

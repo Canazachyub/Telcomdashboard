@@ -6,7 +6,7 @@ import {
   Maximize2, Grid, Image as ImageIcon
 } from 'lucide-react';
 import type { PhotoLink } from '../types/point';
-import { loadImageWithCache, imageCache } from '../utils/imageCache';
+import { loadImageWithCache, loadThumbWithCache, imageCache } from '../utils/imageCache';
 
 interface PhotoGalleryModalProps {
   photos: PhotoLink[];
@@ -64,7 +64,8 @@ function PhotoThumbnail({
     }
 
     async function loadImage() {
-      const data = await loadImageWithCache(photo.url);
+      // Miniatura liviana: pocos KB en vez de la foto original
+      const data = await loadThumbWithCache(photo.url);
       if (cancelled) return;
       if (data) {
         setImageData(data);
@@ -132,45 +133,8 @@ export default function PhotoGalleryModal({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
-  // Si no hay fotos, mostrar mensaje y cerrar
-  if (!photos || photos.length === 0) {
-    return (
-      <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-        <div className="mx-4 max-w-md rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-2xl shadow-black/50">
-          <Camera size={56} className="mx-auto mb-4 text-electric" />
-          <h3 className="mb-2 text-xl font-semibold text-gray-900">Sin fotos disponibles</h3>
-          <p className="mb-6 text-sm text-gray-500">No hay fotos registradas para {suministro}.</p>
-          <button
-            onClick={onClose}
-            className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition hover:brightness-110"
-          >
-            Cerrar
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  const currentPhoto = photos[currentIndex];
-
-  // Guard adicional por si currentPhoto es undefined
-  if (!currentPhoto || !currentPhoto.url) {
-    return (
-      <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-        <div className="mx-4 max-w-md rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-2xl shadow-black/50">
-          <Camera size={56} className="mx-auto mb-4 text-electric" />
-          <h3 className="mb-2 text-xl font-semibold text-gray-900">Error al cargar foto</h3>
-          <p className="mb-6 text-sm text-gray-500">La foto seleccionada no tiene un enlace válido.</p>
-          <button
-            onClick={onClose}
-            className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition hover:brightness-110"
-          >
-            Cerrar
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const currentPhoto = photos[currentIndex] as PhotoLink | undefined;
+  const fotoUrl = currentPhoto?.url || '';
 
   // Keyboard navigation
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -216,11 +180,25 @@ export default function PhotoGalleryModal({
   };
 
   const openInDrive = () => {
-    window.open(currentPhoto.url, '_blank');
+    window.open(fotoUrl, '_blank');
   };
 
   // Estado para la imagen cargada desde el backend (evita CORS)
   const [mainImageData, setMainImageData] = useState<string | null>(null);
+  // Vista previa (miniatura) mientras llega la foto completa
+  const [previa, setPrevia] = useState<{ url: string; data: string | null } | null>(null);
+  const preview = previa?.url === fotoUrl ? previa.data : null;
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!fotoUrl || imageCache.has(fotoUrl)) return;
+    loadThumbWithCache(fotoUrl).then((d) => {
+      if (!cancelled) setPrevia({ url: fotoUrl, data: d });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [fotoUrl]);
 
   // Cargar imagen cuando cambia la foto actual (con cache)
   useEffect(() => {
@@ -228,8 +206,8 @@ export default function PhotoGalleryModal({
     setError(false);
 
     // Verificar cache primero (instantáneo)
-    if (imageCache.has(currentPhoto.url)) {
-      setMainImageData(imageCache.get(currentPhoto.url)!);
+    if (imageCache.has(fotoUrl)) {
+      setMainImageData(imageCache.get(fotoUrl)!);
       setLoading(false);
       return;
     }
@@ -238,7 +216,7 @@ export default function PhotoGalleryModal({
     setMainImageData(null);
 
     async function loadMainImage() {
-      const data = await loadImageWithCache(currentPhoto.url);
+      const data = await loadImageWithCache(fotoUrl);
       if (cancelled) return;
       if (data) {
         setMainImageData(data);
@@ -248,7 +226,7 @@ export default function PhotoGalleryModal({
       setLoading(false);
     }
 
-    if (currentPhoto.url) {
+    if (fotoUrl) {
       loadMainImage();
     } else {
       setError(true);
@@ -256,11 +234,15 @@ export default function PhotoGalleryModal({
     }
 
     return () => { cancelled = true; };
-  }, [currentPhoto.url]);
+  }, [fotoUrl]);
 
-  // Precargar imágenes adyacentes (siguiente y anterior)
+  // Precargar las demás fotos (las siguientes primero), así pasar de una a otra es inmediato
   useEffect(() => {
-    const preloadIndexes = [currentIndex - 1, currentIndex + 1];
+    const preloadIndexes = photos
+      .map((_, i) => i)
+      .filter((i) => i !== currentIndex)
+      .sort((a, b) => Math.abs(a - currentIndex) - Math.abs(b - currentIndex))
+      .slice(0, 6);
 
     preloadIndexes.forEach(index => {
       if (index >= 0 && index < photos.length) {
@@ -272,6 +254,45 @@ export default function PhotoGalleryModal({
       }
     });
   }, [currentIndex, photos]);
+
+  // Si no hay fotos, mostrar mensaje y cerrar
+  if (!photos || photos.length === 0) {
+    return (
+      <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+        <div className="mx-4 max-w-md rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-2xl shadow-black/50">
+          <Camera size={56} className="mx-auto mb-4 text-electric" />
+          <h3 className="mb-2 text-xl font-semibold text-gray-900">Sin fotos disponibles</h3>
+          <p className="mb-6 text-sm text-gray-500">No hay fotos registradas para {suministro}.</p>
+          <button
+            onClick={onClose}
+            className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition hover:brightness-110"
+          >
+            Cerrar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Guard adicional por si currentPhoto es undefined
+  if (!currentPhoto || !fotoUrl) {
+    return (
+      <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+        <div className="mx-4 max-w-md rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-2xl shadow-black/50">
+          <Camera size={56} className="mx-auto mb-4 text-electric" />
+          <h3 className="mb-2 text-xl font-semibold text-gray-900">Error al cargar foto</h3>
+          <p className="mb-6 text-sm text-gray-500">La foto seleccionada no tiene un enlace válido.</p>
+          <button
+            onClick={onClose}
+            className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition hover:brightness-110"
+          >
+            Cerrar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
 
   return (
     <div className="fixed inset-0 z-[1000] flex flex-col bg-black/95">
@@ -343,9 +364,17 @@ export default function PhotoGalleryModal({
 
               {/* Image container */}
               <div className="relative w-full h-full flex items-center justify-center">
+                {loading && preview && (
+                  <img
+                    src={preview}
+                    alt=""
+                    className="absolute max-h-[75vh] max-w-full scale-[1.01] rounded-xl object-contain opacity-70 blur-[2px]"
+                  />
+                )}
                 {loading && (
-                  <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
                     <div className="h-12 w-12 animate-spin rounded-full border-4 border-line-strong border-t-electric"></div>
+                    {preview && <span className="rounded bg-black/60 px-2 py-0.5 text-xs text-white">Cargando en alta calidad…</span>}
                   </div>
                 )}
 
@@ -392,16 +421,21 @@ export default function PhotoGalleryModal({
                   </div>
                   <div className="flex justify-between gap-3">
                     <dt className="text-gray-500">Fecha</dt>
-                    <dd className="text-right font-mono text-gray-900" title={currentPhoto.fecha || ''}>
-                      {parseFecha(currentPhoto.fecha)?.toLocaleString('es-PE', {
-                        day: '2-digit',
-                        month: 'short',
-                        year: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      }) ||
-                        currentPhoto.fecha ||
-                        '—'}
+                    <dd className="text-right text-gray-900" title={currentPhoto.fecha || ''}>
+                      {(() => {
+                        const d = parseFecha(currentPhoto.fecha);
+                        if (!d) return currentPhoto.fecha || '—';
+                        return (
+                          <>
+                            <span className="block whitespace-nowrap">
+                              {d.toLocaleDateString('es-PE', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+                            </span>
+                            <span className="block whitespace-nowrap font-mono text-electric">
+                              {d.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </>
+                        );
+                      })()}
                     </dd>
                   </div>
                   {currentPhoto.odtNombre && (

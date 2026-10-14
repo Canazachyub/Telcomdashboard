@@ -12,6 +12,7 @@ import {
   Navigation,
   X,
   Layers,
+  CalendarRange,
 } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
 import { brandAsset } from '../../config/brand';
@@ -40,6 +41,7 @@ const menuGroups: MenuGroup[] = [
   {
     label: 'Supervisión',
     items: [
+      { name: 'Resumen de jornadas', path: '/resumen', icon: <CalendarRange size={18} />, roles: ['admin', 'supervisor'] },
       { name: 'Reportes', path: '/reportes', icon: <FileText size={18} />, roles: ['admin', 'supervisor'] },
       { name: 'Cruce de jornadas', path: '/cruce', icon: <Layers size={18} />, roles: ['admin', 'supervisor'] },
       { name: 'Observados', path: '/observados', icon: <AlertCircle size={18} />, roles: ['admin', 'supervisor'] },

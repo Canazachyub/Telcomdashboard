@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { ImageOff } from 'lucide-react';
 import type { PhotoLink } from '../types/point';
-import { loadImageWithCache } from '../utils/imageCache';
+import { loadThumbWithCache } from '../utils/imageCache';
 
 /**
  * Miniatura que se carga solo al aparecer en pantalla. Las fotos de Drive no son
  * públicas, así que se piden por el servidor (misma vía y caché que la galería).
  */
-function Thumb({ url, size }: { url: string; size: number }) {
+export function Thumb({ url, size }: { url: string; size?: number }) {
   const ref = useRef<HTMLDivElement>(null);
   const [src, setSrc] = useState<string | null>(null);
   const [estado, setEstado] = useState<'espera' | 'cargando' | 'ok' | 'error'>('espera');
@@ -20,7 +20,7 @@ function Thumb({ url, size }: { url: string; size: number }) {
         if (!entries.some((e) => e.isIntersecting)) return;
         io.disconnect();
         setEstado('cargando');
-        loadImageWithCache(url).then((d) => {
+        loadThumbWithCache(url).then((d) => {
           setSrc(d);
           setEstado(d ? 'ok' : 'error');
         });
@@ -32,7 +32,11 @@ function Thumb({ url, size }: { url: string; size: number }) {
   }, [url, estado]);
 
   return (
-    <div ref={ref} className="flex h-full w-full items-center justify-center" style={{ width: size, height: size }}>
+    <div
+      ref={ref}
+      className="flex h-full w-full items-center justify-center"
+      style={size ? { width: size, height: size } : undefined}
+    >
       {estado === 'ok' && src ? (
         <img src={src} alt="" className="h-full w-full object-cover transition-transform group-hover:scale-110" />
       ) : estado === 'error' ? (
