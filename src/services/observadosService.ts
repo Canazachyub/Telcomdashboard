@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { API_POINTS } from '../config/api';
+import { generalizarObservacion } from '../config/report';
 
 // Tipos para OBSERVADOS
 export interface ObservadoPoint {
@@ -55,7 +56,11 @@ export async function getObservadosData(sheetName: string): Promise<ObservadosDa
     const response = await axios.get(
       `${API_POINTS}?action=getObservadosData&sheetName=${encodeURIComponent(sheetName)}`
     );
-    return response.data;
+    const data: ObservadosDataResponse = response.data;
+    if (Array.isArray(data?.points)) {
+      data.points = data.points.map((p) => ({ ...p, notas: generalizarObservacion(p.notas) }));
+    }
+    return data;
   } catch (error) {
     console.error('Error obteniendo datos de OBSERVADOS:', error);
     return null;

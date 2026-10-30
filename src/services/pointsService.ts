@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { API_POINTS } from '../config/api';
+import { generalizarObservacion } from '../config/report';
 import type {
   GpsPoint,
   GpsPointExtended,
@@ -77,7 +78,11 @@ export async function testConnection(): Promise<boolean> {
 export async function getAllPointsExtended(sheetName: string): Promise<AllPointsExtendedResponse> {
   try {
     const response = await axios.get(`${API_POINTS}?action=getAllPointsExtended&sheetName=${encodeURIComponent(sheetName)}`);
-    return response.data;
+    const data: AllPointsExtendedResponse = response.data;
+    if (Array.isArray(data?.points)) {
+      data.points = data.points.map((p) => ({ ...p, notas: generalizarObservacion(p.notas) ?? null }));
+    }
+    return data;
   } catch (error) {
     console.error('Error obteniendo puntos extendidos:', error);
     return {
