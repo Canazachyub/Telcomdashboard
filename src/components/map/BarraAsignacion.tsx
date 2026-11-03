@@ -1,28 +1,62 @@
 // Barra de mando para asignar la selección del mapa a un técnico (estilo juego de
-// estrategia): los técnicos tienen tecla 1–9, Enter asigna y Esc limpia.
+// estrategia): los técnicos tienen tecla 1–9, Enter asigna, Ctrl+Z deshace y Esc limpia.
+// La selección puede mezclar varias jornadas: se asigna hoja por hoja.
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { UserPlus, X, CheckCircle2 } from 'lucide-react';
+import { UserPlus, X, CheckCircle2, Undo2, MessageCircle } from 'lucide-react';
 import { getPointStatus, type GpsPointExtended } from '../../types/point';
 import { getTecnicos, assignTecnico } from '../../services/tecnicoService';
 import { workersOf } from '../../services/pointsService';
 import { progressByTecnico, initialOf, type AnyPoint } from './techUtils';
+import { etiquetaHoja, tecnicoDe } from './mapaHojas';
 import { safeHexColor } from '../../utils/html';
+
+interface Cambio {
+  hoja: string;
+  suministro: string;
+  antes: string;
+}
 
 interface Props {
   seleccion: AnyPoint[];
   allPoints: AnyPoint[];
-  sheetName: string;
+  /** Jornada a la que pertenece cada punto */
+  hojaDe: (p: AnyPoint) => string;
+  /** Color del técnico en el mapa («Colorear por asignado») */
+  colorDe: (nombre: string) => string | undefined;
   onLimpiar: () => void;
-  onAsignado: () => void;
+  /** Se escribió en estas jornadas: hay que releerlas */
+  onAsignado: (hojas: string[]) => void;
+  onAvisar: (nombre: string) => void;
 }
 
-export default function BarraAsignacion({ seleccion, allPoints, sheetName, onLimpiar, onAsignado }: Props) {
+/** Asigna agrupando por jornada; devuelve cuántos actualizó el servidor y los errores. */
+async function asignarPorHoja(grupos: Map<string, string[]>, tecnico: string) {
+  let updated = 0;
+  const errores: string[] = [];
+  for (const [hoja, sums] of grupos) {
+    const r = await assignTecnico(hoja, sums, tecnico);
+    if (r.success) updated += r.updated ?? sums.length;
+    else errores.push(`${etiquetaHoja(hoja)}: ${r.message || 'error'}`);
+  }
+  return { updated, errores };
+}
+
+export default function BarraAsignacion({
+  seleccion,
+  allPoints,
+  hojaDe,
+  colorDe,
+  onLimpiar,
+  onAsignado,
+  onAvisar,
+}: Props) {
   const [usuarios, setUsuarios] = useState<string[]>([]);
   const [soloPendientes, setSoloPendientes] = useState(true);
   const [noReasignar, setNoReasignar] = useState(false);
   const [elegido, setElegido] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState<{ ok: boolean; texto: string } | null>(null);
+  const [ultimo, setUltimo] = useState<{ tecnico: string; cambios: Cambio[] } | null>(null);
 
   useEffect(() => {
     getTecnicos().then((r) => {
@@ -30,11 +64,11 @@ export default function BarraAsignacion({ seleccion, allPoints, sheetName, onLim
     });
   }, []);
 
-  // Técnicos: usuarios TECNICO + los que ya figuran en la jornada + quienes tomaron fotos
+  // Técnicos: usuarios TECNICO + los que ya figuran en las jornadas + quienes tomaron fotos
   const carga = useMemo(() => progressByTecnico(allPoints), [allPoints]);
   const opciones = useMemo(() => {
     const porNombre = new Map(carga.filter((c) => c.nombre !== 'Sin asignar').map((c) => [c.nombre, c]));
-    // Cuántos suministros fotografió cada uno en esta jornada (los que trabajan aquí van primero)
+    // Cuántos suministros fotografió cada uno (los que trabajan aquí van primero)
     const fotos = new Map<string, number>();
     allPoints.forEach((p) => {
       const n = ((p as GpsPointExtended).odtNombre || '').trim();
@@ -53,22 +87,23 @@ export default function BarraAsignacion({ seleccion, allPoints, sheetName, onLim
   }, [carga, usuarios, allPoints]);
 
   const resumen = useMemo(() => {
-    const r = { pendientes: 0, enProceso: 0, completados: 0, conTecnico: 0 };
+    const r = { pendientes: 0, enProceso: 0, completados: 0, conTecnico: 0, hojas: new Set<string>() };
     seleccion.forEach((p) => {
       const st = getPointStatus(p);
       if (st === 'completado') r.completados++;
       else if (st === 'en_proceso') r.enProceso++;
       else r.pendientes++;
-      if (((p as GpsPointExtended).tecnico || '').trim()) r.conTecnico++;
+      if (tecnicoDe(p)) r.conTecnico++;
+      r.hojas.add(hojaDe(p));
     });
     return r;
-  }, [seleccion]);
+  }, [seleccion, hojaDe]);
 
   const aAsignar = useMemo(
     () =>
       seleccion.filter((p) => {
         if (soloPendientes && getPointStatus(p) !== 'pendiente') return false;
-        if (noReasignar && ((p as GpsPointExtended).tecnico || '').trim()) return false;
+        if (noReasignar && tecnicoDe(p)) return false;
         return true;
       }),
     [seleccion, soloPendientes, noReasignar],
@@ -78,18 +113,75 @@ export default function BarraAsignacion({ seleccion, allPoints, sheetName, onLim
     if (!elegido || aAsignar.length === 0 || guardando) return;
     setGuardando(true);
     setMensaje(null);
-    const r = await assignTecnico(sheetName, [...new Set(aAsignar.map((p) => String(p.suministro)))], elegido);
+    const grupos = new Map<string, string[]>();
+    const cambios: Cambio[] = [];
+    const vistos = new Set<string>();
+    aAsignar.forEach((p) => {
+      const hoja = hojaDe(p);
+      const sum = String(p.suministro);
+      if (vistos.has(`${hoja}|${sum}`)) return;
+      vistos.add(`${hoja}|${sum}`);
+      grupos.set(hoja, [...(grupos.get(hoja) || []), sum]);
+      cambios.push({ hoja, suministro: sum, antes: tecnicoDe(p) });
+    });
+    const { updated, errores } = await asignarPorHoja(grupos, elegido);
     setGuardando(false);
-    if (r.success) {
-      setMensaje({ ok: true, texto: `${r.updated ?? aAsignar.length} suministros asignados a ${elegido}` });
+    if (updated > 0) {
+      setUltimo({ tecnico: elegido, cambios });
+      setMensaje({
+        ok: errores.length === 0,
+        texto:
+          `${updated} suministros asignados a ${elegido}` +
+          (grupos.size > 1 ? ` en ${grupos.size} jornadas` : '') +
+          (errores.length ? ` · falló ${errores.join('; ')}` : ''),
+      });
       setElegido('');
-      onAsignado();
+      onAsignado([...grupos.keys()]);
     } else {
-      setMensaje({ ok: false, texto: r.message || 'No se pudo asignar' });
+      setMensaje({ ok: false, texto: errores.join('; ') || 'No se pudo asignar' });
     }
-  }, [elegido, aAsignar, guardando, sheetName, onAsignado]);
+  }, [elegido, aAsignar, guardando, hojaDe, onAsignado]);
 
-  // Atajos: 1–9 elige técnico, Enter asigna, Esc limpia
+  // Deshacer: devuelve cada suministro a su técnico anterior. El servidor no deja un
+  // suministro sin técnico, así que los que no tenían ninguno se quedan como están.
+  const deshacer = useCallback(async () => {
+    if (!ultimo || guardando) return;
+    setGuardando(true);
+    setMensaje(null);
+    const porTecnico = new Map<string, Map<string, string[]>>();
+    let sinAnterior = 0;
+    ultimo.cambios.forEach((c) => {
+      if (!c.antes) {
+        sinAnterior++;
+        return;
+      }
+      if (c.antes === ultimo.tecnico) return;
+      const g = porTecnico.get(c.antes) || new Map<string, string[]>();
+      g.set(c.hoja, [...(g.get(c.hoja) || []), c.suministro]);
+      porTecnico.set(c.antes, g);
+    });
+    let updated = 0;
+    const errores: string[] = [];
+    const hojas = new Set<string>();
+    for (const [tecnico, grupos] of porTecnico) {
+      const r = await asignarPorHoja(grupos, tecnico);
+      updated += r.updated;
+      errores.push(...r.errores);
+      grupos.forEach((_, h) => hojas.add(h));
+    }
+    setGuardando(false);
+    setUltimo(null);
+    setMensaje({
+      ok: errores.length === 0,
+      texto:
+        `Deshecho: ${updated} vuelven a su técnico anterior` +
+        (sinAnterior ? ` · ${sinAnterior} no tenían técnico y siguen con ${ultimo.tecnico}` : '') +
+        (errores.length ? ` · falló ${errores.join('; ')}` : ''),
+    });
+    if (hojas.size) onAsignado([...hojas]);
+  }, [ultimo, guardando, onAsignado]);
+
+  // Atajos: 1–9 elige técnico, Enter asigna, Ctrl+Z deshace, Esc limpia
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.closest('input,textarea,select')) return;
@@ -98,33 +190,62 @@ export default function BarraAsignacion({ seleccion, allPoints, sheetName, onLim
         else onLimpiar();
       } else if (e.key === 'Enter') {
         asignar();
-      } else if (/^[1-9]$/.test(e.key) && seleccion.length) {
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        deshacer();
+      } else if (/^[1-9]$/.test(e.key) && !e.ctrlKey && !e.altKey && seleccion.length) {
         const o = opciones[Number(e.key) - 1];
         if (o) setElegido(o.nombre);
       }
     };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
-  }, [opciones, asignar, onLimpiar, elegido, seleccion.length]);
+  }, [opciones, asignar, deshacer, onLimpiar, elegido, seleccion.length]);
 
   // El mensaje de resultado se va solo
   useEffect(() => {
     if (!mensaje) return;
-    const t = setTimeout(() => setMensaje(null), 4000);
+    const t = setTimeout(() => setMensaje(null), 7000);
     return () => clearTimeout(t);
   }, [mensaje]);
+
+  const accionesUltimo = ultimo && (
+    <span className="flex shrink-0 flex-wrap items-center gap-1.5">
+      <button
+        onClick={deshacer}
+        disabled={guardando}
+        className="flex items-center gap-1 rounded-lg border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:border-electric hover:text-electric disabled:opacity-50"
+        title="Devolver los suministros a su técnico anterior (Ctrl+Z)"
+      >
+        <Undo2 size={13} /> Deshacer
+      </button>
+      <button
+        onClick={() => onAvisar(ultimo.tecnico)}
+        className="flex items-center gap-1 rounded-lg border border-green-300 px-2 py-1 text-xs text-green-700 hover:bg-green-50"
+        title="Enviarle su asignación por WhatsApp"
+      >
+        <MessageCircle size={13} /> Avisar a {ultimo.tecnico.split(/\s+/)[0]}
+      </button>
+    </span>
+  );
 
   return (
     <div className="absolute inset-x-3 bottom-3 z-[600] rounded-2xl border border-electric/40 bg-navy-900/95 p-3 shadow-2xl backdrop-blur">
       {seleccion.length === 0 ? (
         <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-gray-700">
           <span>
-            <b className="text-electric">Arrastra</b> sobre el mapa para seleccionar puntos · <b>Shift</b> suma ·{' '}
-            <b>Alt</b> quita · clic en un punto lo marca · <b>Espacio</b> + arrastrar mueve el mapa
+            <b className="text-electric">Arrastra</b> para seleccionar · <b>Shift</b> suma · <b>Alt</b> quita · clic
+            marca un punto · <b>doble clic</b> = sus iguales en pantalla · <b>Ctrl+A</b> = pendientes en pantalla ·{' '}
+            <b>Espacio</b> mueve el mapa
           </span>
-          {mensaje && (
-            <span className={`flex items-center gap-1.5 text-sm ${mensaje.ok ? 'text-green-700' : 'text-red-700'}`}>
-              {mensaje.ok && <CheckCircle2 size={15} />} {mensaje.texto}
+          {(mensaje || ultimo) && (
+            <span className="flex flex-wrap items-center gap-2">
+              {mensaje && (
+                <span className={`flex items-center gap-1.5 text-sm ${mensaje.ok ? 'text-green-700' : 'text-red-700'}`}>
+                  {mensaje.ok && <CheckCircle2 size={15} />} {mensaje.texto}
+                </span>
+              )}
+              {accionesUltimo}
             </span>
           )}
         </div>
@@ -135,6 +256,7 @@ export default function BarraAsignacion({ seleccion, allPoints, sheetName, onLim
             <div className="flex items-center justify-between gap-2">
               <p className="text-sm text-gray-900">
                 <span className="font-mono text-2xl font-semibold text-electric">{seleccion.length}</span> seleccionados
+                {resumen.hojas.size > 1 && <span className="text-gray-500"> · {resumen.hojas.size} jornadas</span>}
               </p>
               <button
                 onClick={onLimpiar}
@@ -168,7 +290,7 @@ export default function BarraAsignacion({ seleccion, allPoints, sheetName, onLim
           </div>
 
           {/* Técnicos con atajo */}
-          <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto pb-1">
+          <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto pb-1 pt-1.5 pl-1.5">
             {opciones.map((o, i) => {
               const activo = elegido === o.nombre;
               return (
@@ -187,14 +309,14 @@ export default function BarraAsignacion({ seleccion, allPoints, sheetName, onLim
                   )}
                   <span
                     className="flex h-8 w-8 items-center justify-center rounded-lg text-sm font-bold text-white"
-                    style={{ backgroundColor: safeHexColor(o.info?.color, '#2a4268') }}
+                    style={{ backgroundColor: safeHexColor(colorDe(o.nombre) ?? o.info?.color, '#2a4268') }}
                   >
                     {initialOf(o.nombre)}
                   </span>
                   <span>
                     <span className="block whitespace-nowrap text-sm font-medium text-gray-900">{o.nombre}</span>
                     <span className="block whitespace-nowrap text-[11px] text-gray-500">
-                      {o.info ? `${o.info.total} asignados · ` : ''}
+                      {o.info ? `${o.info.pendientes} pend. de ${o.info.total} · ` : ''}
                       {o.hechos ? `${o.hechos} fotografiados` : o.info ? '' : 'Sin trabajo aquí aún'}
                     </span>
                   </span>
@@ -204,7 +326,7 @@ export default function BarraAsignacion({ seleccion, allPoints, sheetName, onLim
           </div>
 
           {/* Acción */}
-          <div className="flex shrink-0 flex-col items-stretch gap-1 lg:w-56">
+          <div className="flex shrink-0 flex-col items-stretch gap-1 lg:w-60">
             <button
               onClick={asignar}
               disabled={!elegido || aAsignar.length === 0 || guardando}
@@ -225,6 +347,7 @@ export default function BarraAsignacion({ seleccion, allPoints, sheetName, onLim
             {mensaje && (
               <p className={`text-center text-xs ${mensaje.ok ? 'text-green-700' : 'text-red-700'}`}>{mensaje.texto}</p>
             )}
+            {accionesUltimo && <div className="flex justify-center">{accionesUltimo}</div>}
           </div>
         </div>
       )}

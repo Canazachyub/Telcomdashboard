@@ -64,6 +64,8 @@ interface PointsState {
   loadSheets: () => Promise<void>;
   loadPoints: (sheetName: string) => Promise<void>;
   loadPointsExtended: (sheetName: string) => Promise<void>;
+  /** Relee la jornada actual sin pantalla de carga y conservando los filtros (tras asignar) */
+  recargarSilencioso: () => Promise<void>;
   setSelectedSheet: (sheetName: string) => void;
   refreshPoints: () => Promise<void>;
 
@@ -234,6 +236,23 @@ export const usePointsStore = create<PointsState>()(
       // Fallback a legacy
       await get().loadPoints(sheetName);
     }
+  },
+
+  recargarSilencioso: async () => {
+    const { selectedSheet } = get();
+    if (!selectedSheet) return;
+    const requestId = loadRequestId;
+    const r = await getAllPointsExtended(selectedSheet);
+    // Si mientras tanto se cambió de jornada o empezó otra carga, no pisarla
+    if (requestId !== loadRequestId || get().selectedSheet !== selectedSheet) return;
+    if (!r?.success || !Array.isArray(r.points)) return;
+    set({
+      pointsExtended: r.points,
+      tecnicos: getUniqueTecnicos(r.points),
+      distritos: getUniqueDistritos(r.points),
+      lastUpdated: new Date().toISOString(),
+    });
+    get().applyFilters();
   },
 
   // Cambiar hoja seleccionada

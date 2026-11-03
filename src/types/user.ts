@@ -8,6 +8,7 @@ export interface User {
   nombre: string;
   rol: UserRole;
   activo: boolean;
+  telefono?: string;
   createdAt?: string;
   lastLogin?: string;
 }
