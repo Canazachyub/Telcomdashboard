@@ -485,7 +485,7 @@ function handleGetPlanJornada(sheetName) {
       pos[sum] = plan.length;
       plan.push({
         suministro: sum,
-        fechaProgramada: hayProgramadas ? formato_fecha_(row[m.fecha], zona, 'dd/MM/yyyy') : '',
+        fechaProgramada: hayProgramadas ? formato_fechaProgramada_(row[m.fecha], zona) : '',
         tecnico: formato_texto_(row[m.tecnico]),
         coincidente: coincide
       });
@@ -694,4 +694,24 @@ function handleMarcarAvisado(requestData) {
   } finally {
     try { lock.releaseLock(); } catch (e) {}
   }
+}
+
+/**
+ * Fecha programada (columna C) siempre como dd/MM/yyyy, para que la app la compare con el sticker.
+ * Acepta celdas de fecha, «02 de Marzo de 2026», «2/3/2026» o «02-03-2026». Si no la entiende, la deja tal cual.
+ */
+function formato_fechaProgramada_(v, zona) {
+  if (v instanceof Date) return Utilities.formatDate(v, zona, 'dd/MM/yyyy');
+  const t = formato_texto_(v);
+  const dos = function (n) { return ('0' + n).slice(-2); };
+  const MESES = { enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6, julio: 7, agosto: 8,
+    septiembre: 9, setiembre: 9, octubre: 10, noviembre: 11, diciembre: 12 };
+  let m = t.match(/^(\d{1,2})\s+de\s+([a-záéíóú]+)\s+(?:de(?:l)?\s+)?(\d{4})$/i);
+  if (m) {
+    const mes = MESES[m[2].toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')];
+    if (mes) return dos(m[1]) + '/' + dos(mes) + '/' + m[3];
+  }
+  m = t.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
+  if (m) return dos(m[1]) + '/' + dos(m[2]) + '/' + m[3];
+  return t;
 }
