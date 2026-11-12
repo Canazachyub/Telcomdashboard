@@ -94,6 +94,21 @@ export default function IncluirFormatos({ control: c, faltantes, total }: Props)
         </label>
       )}
 
+      {algunoMarcado && (
+        <label className="flex cursor-pointer items-center gap-2 text-xs text-gray-700">
+          <input
+            type="checkbox"
+            checked={c.incluir.anexarF4}
+            onChange={(e) => c.setElegido((prev) => ({ ...prev, anexarF4: e.target.checked }))}
+            className="h-4 w-4 accent-electric"
+          />
+          <span>
+            Anexar el Formato 4 de cada suministro{' '}
+            <span className="text-gray-500">(dentro de cada PDF 1A/2A, con sus fotos: tarda más)</span>
+          </span>
+        </label>
+      )}
+
       {/* Por qué están deshabilitadas */}
       {sinDatos && !c.simulado && (
         <p className="flex items-start gap-1.5 text-xs text-gray-500">

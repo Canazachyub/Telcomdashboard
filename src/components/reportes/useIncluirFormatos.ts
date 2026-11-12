@@ -14,6 +14,7 @@ import {
 } from '../../services/formatosService';
 import type { Supervisada } from '../../utils/pdfFormatos';
 import { usePointsStore } from '../../stores/pointsStore';
+import { guardarAnexarF4, leerAnexarF4 } from '../../utils/formatosConAnexo';
 
 export type EstadoFormatos = 'sinJornada' | 'cargando' | 'listo' | 'sinServidor' | 'error';
 
@@ -22,6 +23,8 @@ export interface IncluirElegido {
   f2A: boolean;
   /** Evidencias de los NO y registro fotográfico adicional (páginas desde la 2). */
   fotos: boolean;
+  /** Formato 4 de cada suministro dentro del PDF del 1A/2A (se recuerda aparte: telcom-anexar-f4). */
+  anexarF4: boolean;
 }
 
 const CLAVE = 'telcom-incluir-formatos';
@@ -29,9 +32,9 @@ const CLAVE = 'telcom-incluir-formatos';
 function leerElegido(): IncluirElegido {
   try {
     const j = JSON.parse(localStorage.getItem(CLAVE) || '{}') as Partial<IncluirElegido>;
-    return { f1A: j.f1A === true, f2A: j.f2A === true, fotos: j.fotos !== false };
+    return { f1A: j.f1A === true, f2A: j.f2A === true, fotos: j.fotos !== false, anexarF4: leerAnexarF4() };
   } catch {
-    return { f1A: false, f2A: false, fotos: true };
+    return { f1A: false, f2A: false, fotos: true, anexarF4: leerAnexarF4() };
   }
 }
 
@@ -57,7 +60,9 @@ export function useIncluirFormatos(hoja: string | null, activo: boolean) {
   // Recordar la elección en este navegador
   useEffect(() => {
     try {
-      localStorage.setItem(CLAVE, JSON.stringify(elegido));
+      const { anexarF4, ...resto } = elegido;
+      localStorage.setItem(CLAVE, JSON.stringify(resto));
+      guardarAnexarF4(anexarF4);
     } catch {
       /* sin almacenamiento: queda solo en memoria */
     }
@@ -104,6 +109,7 @@ export function useIncluirFormatos(hoja: string | null, activo: boolean) {
     f1A: elegido.f1A && disponible1A,
     f2A: elegido.f2A && disponible2A,
     fotos: elegido.fotos,
+    anexarF4: elegido.anexarF4,
   };
 
   /** Suministros que no tienen ningún formulario de la app (para el aviso). */

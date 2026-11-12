@@ -15,7 +15,8 @@ import { generateReportePDF, generateReportePDFSimple, DEFAULT_OBSERVACION, type
 import { agregarAnexosAlZip, carpetaAnexos, itemsReporte, type ReporteItem } from '../utils/exportarAnexos';
 import IncluirFormatos from '../components/reportes/IncluirFormatos';
 import { useIncluirFormatos, type ItemExportado } from '../components/reportes/useIncluirFormatos';
-import { agregarFormatosAlZip, prepararLogo } from '../utils/pdfFormatos';
+import { prepararLogo } from '../utils/pdfFormatos';
+import { agregarFormatosConAnexoAlZip } from '../utils/formatosConAnexo';
 import { brandAsset } from '../config/brand';
 
 // Configuracion de paginacion
@@ -246,7 +247,12 @@ export default function ReportesPage() {
       setBatchProgress(prev => ({ ...prev, currentFile: 'Formatos 1A / 2A…' }));
       await prepararLogo(brandAsset('logo-horizontal.webp'));
       const lista = await prepararSupervisadas(items);
-      const n = await agregarFormatosAlZip(zip, lista, selectedSheet || 'Sin Jornada', incluirFormatos);
+      // Con «Anexar el Formato 4», cada PDF 1A/2A lleva el Formato 4 de sus suministros (misma
+      // observación que los anexos de esta exportación). Sin esa casilla, igual que antes.
+      const n = await agregarFormatosConAnexoAlZip(zip, lista, selectedSheet || 'Sin Jornada', incluirFormatos, {
+        observacion: (p) => observaciones[p.suministro] || '',
+        onProgreso: (texto) => setBatchProgress(prev => ({ ...prev, currentFile: texto })),
+      });
       const faltan = sinFormulario(items.map(it => it.point));
       let txt = '';
       if (incluirFormatos.f1A) txt += `\nFormato 1A (reportes SP): ${n.n1A}`;
@@ -259,7 +265,7 @@ export default function ReportesPage() {
       console.error('Error generando Formatos 1A / 2A:', error);
       return '\nNo se pudieron generar los Formatos 1A / 2A (el Formato 4 sí está en el ZIP).';
     }
-  }, [incluirFormatos, prepararSupervisadas, sinFormulario, selectedSheet]);
+  }, [incluirFormatos, prepararSupervisadas, sinFormulario, selectedSheet, observaciones]);
 
   // Suministros de la exportación completa sin formulario 1A/2A (aviso en la ventana de exportar)
   const faltantesFormatos = useMemo(

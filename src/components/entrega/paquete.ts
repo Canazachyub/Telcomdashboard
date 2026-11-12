@@ -4,7 +4,8 @@
 // Los PDF salen de los mismos generadores que Reportes y Formatos (no se cambian aquí).
 import JSZip from 'jszip';
 import { agregarAnexosAlZip, carpetaAnexos, type ReporteItem } from '../../utils/exportarAnexos';
-import { agregarFormatosAlZip, prepararLogo, type Supervisada } from '../../utils/pdfFormatos';
+import { bloques1A, prepararLogo, type Supervisada } from '../../utils/pdfFormatos';
+import { agregarFormatosConAnexoAlZip } from '../../utils/formatosConAnexo';
 import { brandAsset } from '../../config/brand';
 
 export interface OpcionesPaquete {
@@ -15,6 +16,8 @@ export interface OpcionesPaquete {
   f2A: boolean;
   /** Evidencias de los NO y registro fotográfico adicional en los 1A / 2A. */
   fotos: boolean;
+  /** Formato 4 de cada suministro dentro del PDF de su 1A/2A (con fotos). */
+  anexarF4: boolean;
 }
 
 export interface Progreso {
@@ -43,8 +46,9 @@ export async function armarPaquete(
   const zip = new JSZip();
   const res: ResultadoPaquete = { blob: new Blob(), anexos: 0, erroresAnexos: 0, n1A: 0, n2A: 0 };
   const con1A2A = o.f1A || o.f2A;
-  // Reparto de la barra: Formato 4 hasta 70 %, 1A/2A hasta 85 %, comprimir hasta 100 %
-  const finF4 = con1A2A ? 70 : 85;
+  // Reparto de la barra: carpeta Formato 4, luego 1A/2A, hasta 85 %; comprimir hasta 100 %.
+  // Con el Formato 4 anexado, los 1A/2A son lo más lento (cada suministro lleva su Formato 4 con fotos).
+  const finF4 = !con1A2A ? 85 : !(o.f4 && anexos.length) ? 0 : o.anexarF4 ? 35 : 70;
 
   if (o.f4 && anexos.length) {
     const carpeta = zip.folder('Formato_4')!.folder(carpetaAnexos(hoja))!;
@@ -67,7 +71,28 @@ export async function armarPaquete(
     onProgreso({ pct: finF4, texto: 'Formatos 1A / 2A…' });
     try {
       await prepararLogo(brandAsset('logo-horizontal.webp'));
-      const n = await agregarFormatosAlZip(zip, supervisadas, hoja, { f1A: o.f1A, f2A: o.f2A, fotos: o.fotos });
+      // Suministros cuyo Formato 4 se anexa (para la barra de avance)
+      const total =
+        (o.f1A ? bloques1A(supervisadas).reduce((t, [, b]) => t + b.length, 0) : 0) +
+        (o.f2A ? supervisadas.filter((s) => s.tipo === '2A').length : 0);
+      let hechos = 0;
+      const n = await agregarFormatosConAnexoAlZip(
+        zip,
+        supervisadas,
+        hoja,
+        { f1A: o.f1A, f2A: o.f2A, fotos: o.fotos, anexarF4: o.anexarF4 },
+        {
+          // Misma observación que la carpeta Formato 4 (la de la hoja)
+          observacion: (p) => p.notas?.trim() || '',
+          onProgreso: (texto) => {
+            if (texto.includes('Formato 4 de')) hechos++;
+            onProgreso({
+              pct: finF4 + Math.round((Math.min(hechos, total) / Math.max(1, total)) * (85 - finF4)),
+              texto,
+            });
+          },
+        },
+      );
       res.n1A = n.n1A;
       res.n2A = n.n2A;
     } catch (e) {

@@ -35,6 +35,23 @@ export function formatDate(dateStr: string | null): string {
   }
 }
 
+/** Anexo de un punto con el N.º dado (sin lectura, la lectura queda en «-»). */
+export function itemDePunto(extPoint: GpsPointExtended, numero: number): ReporteItem {
+  return {
+    numero,
+    serie: extPoint.serie?.toString() || '-',
+    suministro: extPoint.suministro,
+    ruta: extPoint.codigoRuta?.toString() || '-',
+    lectura: extPoint.lectura ?? '-',
+    fechaContraste: formatDate(extPoint.fecha),
+    fechaSupervision: formatDate(extPoint.fechaSupervision),
+    tecnico: extPoint.tecnico || '-',
+    distrito: extPoint.distrito || '-',
+    photoLinks: extPoint.photoLinks || [],
+    point: extPoint,
+  };
+}
+
 /** Anexos de la jornada: un item por punto con lectura, numerados en el orden de la hoja. */
 export function itemsReporte(points: GpsPointExtended[]): ReporteItem[] {
   const items: ReporteItem[] = [];
@@ -42,22 +59,30 @@ export function itemsReporte(points: GpsPointExtended[]): ReporteItem[] {
   points.forEach((extPoint) => {
     // Solo incluir puntos que tienen lectura
     if (extPoint.lectura !== null && extPoint.lectura !== undefined && extPoint.lectura !== '') {
-      items.push({
-        numero: numero++,
-        serie: extPoint.serie?.toString() || '-',
-        suministro: extPoint.suministro,
-        ruta: extPoint.codigoRuta?.toString() || '-',
-        lectura: extPoint.lectura,
-        fechaContraste: formatDate(extPoint.fecha),
-        fechaSupervision: formatDate(extPoint.fechaSupervision),
-        tecnico: extPoint.tecnico || '-',
-        distrito: extPoint.distrito || '-',
-        photoLinks: extPoint.photoLinks || [],
-        point: extPoint,
-      });
+      items.push(itemDePunto(extPoint, numero++));
     }
   });
   return items;
+}
+
+/** PDF del Formato 4 de un anexo, exactamente como lo arma Reportes (pdfGenerator.ts). */
+export async function pdfAnexo(
+  item: ReporteItem,
+  o: { withImages: boolean; sheetName: string; observacion: string; numero?: number },
+): Promise<{ blob: Blob; fileName: string }> {
+  const pdfData: ReportePDFData = {
+    numero: o.numero ?? item.numero,
+    serie: item.serie,
+    suministro: item.suministro,
+    ruta: item.ruta,
+    lectura: item.lectura,
+    fechaContraste: item.fechaContraste,
+    fechaSupervision: item.fechaSupervision,
+    observacion: o.observacion,
+    photoLinks: item.photoLinks,
+    sheetName: o.sheetName,
+  };
+  return o.withImages ? generateReportePDFBlob(pdfData) : generateReportePDFSimpleBlob(pdfData);
 }
 
 /** Nombre de la carpeta (y del ZIP) de los anexos: Anexos_[CATEGORIA_]<jornada>_<aaaa-mm-dd>. */
@@ -91,20 +116,12 @@ export async function agregarAnexosAlZip(
     o.onProgress?.(i + 1, items.length, item);
 
     try {
-      const pdfData: ReportePDFData = {
-        numero: o.numero ? o.numero(item, i) : item.numero,
-        serie: item.serie,
-        suministro: item.suministro,
-        ruta: item.ruta,
-        lectura: item.lectura,
-        fechaContraste: item.fechaContraste,
-        fechaSupervision: item.fechaSupervision,
-        observacion: o.observacion(item),
-        photoLinks: item.photoLinks,
+      const result = await pdfAnexo(item, {
+        withImages: o.withImages,
         sheetName: o.sheetName,
-      };
-
-      const result = o.withImages ? await generateReportePDFBlob(pdfData) : generateReportePDFSimpleBlob(pdfData);
+        observacion: o.observacion(item),
+        numero: o.numero ? o.numero(item, i) : item.numero,
+      });
       folder.file(result.fileName, result.blob);
       successCount++;
     } catch (error) {

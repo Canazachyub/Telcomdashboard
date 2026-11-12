@@ -13,6 +13,7 @@ import { nombreSemana, nombreZip, plazoDe, revisar } from '../components/entrega
 import { armarPaquete, descargar, type OpcionesPaquete, type Progreso } from '../components/entrega/paquete';
 import { asignarNumeros, etiquetaReporte, marcarAvisado, type SupervisadaApp } from '../services/formatosService';
 import { bloques1A } from '../utils/pdfFormatos';
+import { guardarAnexarF4, leerAnexarF4 } from '../utils/formatosConAnexo';
 
 const btnGrande = `${ui.btnPrimary} px-6 py-3 text-base`;
 const btnArreglar =
@@ -120,7 +121,15 @@ function EntregaDeSemana({ hoja }: { hoja: string }) {
   };
 
   // ---------------------------------------------------------------- paquete (paso 4)
-  const [op, setOp] = useState<OpcionesPaquete>({ f4: true, f4Fotos: false, f1A: true, f2A: true, fotos: true });
+  // Con el Formato 4 anexado en cada 1A/2A, la carpeta Formato_4 aparte empieza desmarcada (sería repetido)
+  const [op, setOpEstado] = useState<OpcionesPaquete>(() => {
+    const anexarF4 = leerAnexarF4();
+    return { f4: !anexarF4, f4Fotos: false, f1A: true, f2A: true, fotos: true, anexarF4 };
+  });
+  const setOp = (o: OpcionesPaquete) => {
+    if (o.anexarF4 !== op.anexarF4) guardarAnexarF4(o.anexarF4);
+    setOpEstado(o);
+  };
   const [progreso, setProgreso] = useState<Progreso | null>(null);
   const [resultado, setResultado] = useState<{ ok: boolean; texto: string } | null>(null);
   const generando = progreso !== null;
@@ -448,7 +457,13 @@ function EntregaDeSemana({ hoja }: { hoja: string }) {
                 disabled={generando || !anexos.length}
                 onChange={(v) => setOp({ ...op, f4: v })}
                 titulo={`Formato 4 · anexos (${fmt(anexos.length)})`}
-                nota={!anexos.length ? 'No hay suministros con lectura en esta semana.' : 'Igual que en Reportes.'}
+                nota={
+                  !anexos.length
+                    ? 'No hay suministros con lectura en esta semana.'
+                    : op.anexarF4 && (f1A || f2A)
+                      ? 'Carpeta aparte, igual que en Reportes. Ya va dentro de cada 1A/2A: márcala solo si también la quieres suelta.'
+                      : 'Carpeta aparte, igual que en Reportes.'
+                }
               >
                 {op.f4 && anexos.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-2">
@@ -489,6 +504,13 @@ function EntregaDeSemana({ hoja }: { hoja: string }) {
                 onChange={(v) => setOp({ ...op, f2A: v })}
                 titulo={`Formato 2A · reportes SC (${fmt(coincidentes.length)})`}
                 nota={!coincidentes.length ? 'Sin formularios 2A.' : undefined}
+              />
+              <Casilla
+                checked={op.anexarF4}
+                disabled={generando || (!f1A && !f2A)}
+                onChange={(v) => setOp({ ...op, anexarF4: v, f4: v ? false : op.f4 })}
+                titulo="Anexar el Formato 4 de cada suministro dentro del 1A / 2A"
+                nota="Va después de la hoja del 1A/2A, con sus fotos (tarda más). Al marcarlo se desmarca la carpeta Formato 4 aparte para no repetirla."
               />
               <Casilla
                 checked={op.fotos}

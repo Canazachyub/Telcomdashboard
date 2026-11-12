@@ -442,7 +442,7 @@ const nombreSupervisor = (s: Pick<Supervisada, 'tecnico' | 'tecnicoNombre'>) =>
   (s.tecnicoNombre || '').trim() || (s.tecnico || '').trim() || '—';
 
 /**
- * Pie de todas las páginas: supervisor a la izquierda, jornada al centro y «Página x de y» a la derecha.
+ * Pie de todas las páginas: supervisor a la izquierda y jornada al centro.
  * Con respuestas simuladas, la marca del prototipo va en rojo encima de la jornada.
  */
 function pies(doc: jsPDF, supervisor: string, hoja: string, simulado: boolean) {
@@ -470,10 +470,8 @@ function pies(doc: jsPDF, supervisor: string, hoja: string, simulado: boolean) {
         centro: true,
       });
     }
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(6.5);
-    doc.setTextColor(60);
-    doc.text(`Página ${i} de ${n}`, W - M, y + 2.5, { align: 'right', baseline: 'middle' });
+    // Sin «Página x de y»: el 1A/2A se entrega con el Formato 4 de cada suministro intercalado
+    // (formatosConAnexo.ts), así que una numeración propia no coincidiría con la del PDF final.
   }
   doc.setTextColor(0);
   doc.setFont('helvetica', 'normal');
@@ -823,7 +821,7 @@ export async function pdf1A(bloque: Supervisada[], hoja: string): Promise<jsPDF>
     doc.setFont('helvetica', 'italic');
     doc.setFontSize(6.5);
     doc.setTextColor(180, 83, 9);
-    doc.text('Las observaciones continúan en la página 2.', W - M, yMax - 0.8, { align: 'right' });
+    doc.text('Las observaciones continúan en la hoja adicional.', W - M, yMax - 0.8, { align: 'right' });
     doc.setTextColor(0);
     if (!conEvidencias.length)
       paginasObservaciones(
@@ -836,18 +834,24 @@ export async function pdf1A(bloque: Supervisada[], hoja: string): Promise<jsPDF>
       );
   }
 
-  // Desde aquí: evidencias de lo incumplido, una sección por muestra (solo si hay fotos)
-  for (const [k, sv] of conEvidencias.entries()) {
-    await paginasEvidencias(doc, {
+  // Desde aquí: anexo fotográfico continuo (4 fotos por página), agrupado por muestra (solo si hay fotos).
+  // Las observaciones de cada muestra ya están en la página 1: arriba solo va lo que no entró y lo que no tiene foto.
+  if (conEvidencias.length) {
+    const sinEvidencia = bloque.flatMap((sv) => itemsSinFoto(sv).map((t) => `Muestra ${sv.muestra}: ${t}`));
+    await anexoFotografico(doc, {
       titulo: [
         'FORMATO 1A',
         'EVIDENCIAS Y REGISTRO FOTOGRÁFICO',
-        `MUESTRA ${sv.muestra} · SUMINISTRO ${sv.punto.suministro}`,
+        `MUESTRA${conEvidencias.length > 1 ? 'S' : ''} ${conEvidencias.map((sv) => sv.muestra).join(', ')}`,
       ],
       numero,
       provisional,
-      s: sv,
-      previo: k === 0 ? resto : [],
+      secciones: conEvidencias.map((sv) => ({
+        banda: `Muestra ${sv.muestra} · Suministro ${sv.punto.suministro}`,
+        fotos: fotosAnexo(sv),
+      })),
+      sinEvidencia,
+      previo: resto,
     });
   }
 
@@ -1024,8 +1028,8 @@ export async function pdf2A(s: Supervisada, hoja: string): Promise<jsPDF> {
     doc.setFontSize(6.5);
     doc.setTextColor(180, 83, 9);
     const aviso = tieneFotosEvidencia(s)
-      ? 'La observación completa figura en la página 2 (evidencias).'
-      : 'Las observaciones continúan en la hoja adicional (página 2).';
+      ? 'La observación completa figura en el anexo fotográfico (al final).'
+      : 'Las observaciones continúan en la hoja adicional.';
     doc.text(aviso, W - M, yMax - 0.3, { align: 'right' });
     doc.setTextColor(0);
   }
@@ -1042,11 +1046,13 @@ export async function pdf2A(s: Supervisada, hoja: string): Promise<jsPDF> {
 
   // Luego: evidencias de lo incumplido (solo si hay al menos una foto)
   if (tieneFotosEvidencia(s)) {
-    await paginasEvidencias(doc, {
+    await anexoFotografico(doc, {
       titulo: ['FORMATO 2A', 'EVIDENCIAS Y REGISTRO FOTOGRÁFICO', `${s.reporte} · SUMINISTRO ${s.punto.suministro}`],
       numero: s.reporte,
       provisional,
-      s,
+      secciones: [{ fotos: fotosAnexo(s) }],
+      observacion: s.observacion,
+      sinEvidencia: itemsSinFoto(s),
     });
   }
   pies(doc, `Supervisor de campo: ${nombreSupervisor(s)}`, hoja, s.simulado);
@@ -1162,141 +1168,197 @@ function fotoEvidencia(doc: jsPDF, url: string | undefined): Promise<ImgPdf | nu
   return p;
 }
 
+/** Una foto del anexo con lo que documenta. */
+interface FotoAnexo {
+  foto: FotoEvidencia;
+  /** «no»: evidencia de un ítem en NO (rojo); «adicional»: registro adicional (azul); «general»: evidencia suelta. */
+  clase: 'no' | 'adicional' | 'general';
+  /** Ítem o rótulo que va en el pie de la foto. */
+  item: string;
+}
+
+/** Fotos de una supervisión en el orden del anexo (ítems en NO según el formulario y luego registro adicional). */
+function fotosAnexo(s: Supervisada): FotoAnexo[] {
+  const fotos: FotoAnexo[] = [];
+  for (const g of itemsIncumplidos(s))
+    for (const f of g.fotos)
+      fotos.push({
+        foto: f,
+        clase: g.adicional ? 'adicional' : g.pregunta ? 'no' : 'general',
+        item: g.adicional ? f.etiqueta?.trim() || g.texto : g.texto,
+      });
+  // Orden estable: primero lo que no se cumplió, después lo adicional
+  return [...fotos.filter((f) => f.clase !== 'adicional'), ...fotos.filter((f) => f.clase === 'adicional')];
+}
+
+/** Ítems en NO que no tienen ninguna foto (van en una sola línea arriba del anexo). */
+const itemsSinFoto = (s: Supervisada) =>
+  itemsIncumplidos(s)
+    .filter((g) => !g.adicional && g.pregunta && g.fotos.length === 0)
+    .map((g) => g.texto);
+
 /**
- * Páginas A4 verticales con las evidencias de una supervisión: la observación una vez arriba y, por ítem
- * incumplido, «NO CUMPLE · ítem» con sus fotos en una grilla de 2 columnas que respeta la proporción real
- * de cada foto (o «Sin evidencia fotográfica»). Cada foto lleva su rótulo debajo. Si no cabe, sigue en otra
- * página con la misma cabecera. El pie y «Página x de y» los pone `pies` al final.
+ * Anexo fotográfico de las observaciones (A4 vertical, desde la página 2): grilla continua de 2 × 2, hasta 4
+ * fotos por página. Cada foto respeta su proporción dentro de la celda y lleva debajo un pie compacto con el
+ * ítem que documenta (rojo «NO CUMPLE · …» o azul «REGISTRO ADICIONAL · …») y la hora en que se tomó.
+ * Solo en la primera página: observaciones que no entraron en la página 1, la OBSERVACIÓN (si hay) y una línea
+ * «Sin evidencia fotográfica: …». En el 1A cada muestra lleva una banda fina «Muestra N · suministro».
+ * El pie y «Página x de y» los pone `pies` al final.
  */
-async function paginasEvidencias(
+async function anexoFotografico(
   doc: jsPDF,
-  o: { titulo: string[]; numero: string; provisional: boolean; s: Supervisada; previo?: Entrada[] },
+  o: {
+    titulo: string[];
+    numero: string;
+    provisional: boolean;
+    secciones: { banda?: string; fotos: FotoAnexo[] }[];
+    observacion?: string;
+    sinEvidencia: string[];
+    previo?: Entrada[];
+  },
 ): Promise<void> {
   const W = 210,
     H = 297,
     M = 12,
     w = W - 2 * M,
-    pie = H - 15;
-  const { s } = o;
-  const grupos = itemsIncumplidos(s);
+    pie = H - 15,
+    gap = 3,
+    cw = (w - gap) / 2,
+    altoPie = 9.6,
+    altoBanda = 5.5,
+    conBandas = o.secciones.some((sec) => sec.banda);
   // Todas las fotos de una vez (en paralelo; la caché evita repetir descargas)
   const datos = new Map<FotoEvidencia, ImgPdf | null>();
-  await Promise.all(grupos.flatMap((g) => g.fotos.map(async (f) => datos.set(f, await fotoEvidencia(doc, f.url)))));
+  await Promise.all(
+    o.secciones.flatMap((sec) => sec.fotos.map(async (f) => datos.set(f.foto, await fotoEvidencia(doc, f.foto.url)))),
+  );
 
   let y = 0;
+  /** Alto de fila de la página actual (se calcula al poner la primera fila de cada página). */
+  let altoFila = 0;
   const nuevaPagina = () => {
     doc.addPage('a4', 'portrait');
     cabecera(doc, M, M, w, o.titulo, o.numero, 44, 42, o.provisional);
-    y = M + 26;
+    y = M + 24;
+    altoFila = 0;
   };
   nuevaPagina();
 
-  // Observaciones del reporte que no entraron en la página 1 (solo en la primera sección de evidencias)
+  // --- Arriba de la primera página: observaciones que no entraron, la observación y lo que no tiene foto
   let previo = o.previo ?? [];
   while (previo.length) {
     barraGris(doc, 'OBSERVACIONES DEL REPORTE (CONTINUACIÓN DE LA PÁGINA 1)', M, y, w);
-    const r = escribirEntradas(doc, previo, M + 2, y + 6.5, w - 4, pie - 4, { fs: 7.5 });
-    y = r.y + 5;
+    const r = escribirEntradas(doc, previo, M + 2, y + 6, w - 4, pie - 4, { fs: 7 });
+    y = r.y + 3;
     previo = r.resto;
     if (previo.length) nuevaPagina();
   }
-
-  // La app guarda una sola observación por formulario: va una vez, arriba, no repetida por ítem.
-  // Si es muy larga, sigue en la página siguiente (no se corta).
-  // Sin observación (solo registro adicional de una supervisión conforme) no se dibuja el recuadro vacío
-  if (s.observacion?.trim()) {
-    let resto: Entrada[] = [{ rotulo: 'OBSERVACIÓN:', texto: s.observacion.trim() }];
+  if (o.observacion?.trim()) {
+    let resto: Entrada[] = [{ rotulo: 'OBSERVACIÓN:', texto: o.observacion.trim() }];
     while (resto.length) {
-      doc.setFontSize(8);
       const y0 = y;
-      // Se escribe primero para saber el alto, y luego se dibuja el recuadro alrededor del texto
-      const r = escribirEntradas(doc, resto, M + 3, y + 1.5, w - 6, pie - 4, { fs: 8 });
+      const r = escribirEntradas(doc, resto, M + 2.5, y + 1, w - 5, pie - 4, { fs: 7.5 });
       doc.setDrawColor(120);
       doc.setLineWidth(0.3);
-      doc.rect(M, y0, w, r.y - y0 + 1.5, 'D');
-      y = r.y + 5;
+      doc.rect(M, y0, w, r.y - y0 + 1, 'D');
+      y = r.y + 3;
       resto = r.resto;
       if (resto.length) nuevaPagina();
     }
   }
-
-  const gap = 4,
-    cw = (w - gap) / 2,
-    ch = 84,
-    rotulo = 8.5;
-  for (const g of grupos) {
-    // Encabezado del ítem: qué no se cumplió
-    doc.setFontSize(8);
-    doc.setFont('helvetica', 'bold');
-    const titulo = g.adicional ? `REGISTRO ADICIONAL · ${g.texto}` : g.pregunta ? `NO CUMPLE · ${g.texto}` : g.texto;
-    const itemTxt = doc.splitTextToSize(titulo, w - 6) as string[];
-    const sinFoto = g.fotos.length === 0;
-    const altoTit = 3 + itemTxt.length * 3.8 + (sinFoto ? 3.8 : 0) + 1.5;
-    // El título va con al menos una fila de fotos
-    if (y + altoTit + (sinFoto ? 0 : ch) > pie - 2) nuevaPagina();
-    if (g.adicional) {
-      doc.setFillColor(219, 234, 254);
-      doc.setDrawColor(30, 58, 138);
-    } else {
-      doc.setFillColor(254, 226, 226);
-      doc.setDrawColor(185, 28, 28);
-    }
-    doc.setLineWidth(0.4);
-    doc.rect(M, y, w, altoTit, 'FD');
-    if (g.adicional) doc.setTextColor(30, 58, 138);
-    else doc.setTextColor(153, 27, 27);
-    doc.text(itemTxt, M + 3, y + 4.5);
-    doc.setFont('helvetica', 'normal');
+  if (o.sinEvidencia.length) {
+    const txt = o.sinEvidencia.join('; ');
+    doc.setFontSize(7);
+    const alto = altoEntradas(doc, [{ rotulo: 'Sin evidencia fotográfica:', texto: txt }], w - 5, 7) + 2;
+    doc.setFillColor(254, 242, 242);
+    doc.setDrawColor(185, 28, 28);
+    doc.setLineWidth(0.3);
+    doc.rect(M, y, w, alto, 'FD');
+    doc.setTextColor(153, 27, 27);
+    const r = escribirEntradas(
+      doc,
+      [{ rotulo: 'Sin evidencia fotográfica:', texto: txt }],
+      M + 2.5,
+      y + 1,
+      w - 5,
+      pie,
+      {
+        fs: 7,
+      },
+    );
     doc.setTextColor(0);
-    if (sinFoto) {
-      doc.setFont('helvetica', 'italic');
-      doc.setTextColor(110);
-      doc.text('Sin evidencia fotográfica', M + 3, y + 4.5 + itemTxt.length * 3.8);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(0);
-    }
-    y += altoTit + 3;
+    y = r.y + 1 + 3;
+  }
 
-    for (let k = 0; k < g.fotos.length; k++) {
-      const colum = k % 2;
-      if (colum === 0 && y + ch > pie - 2) nuevaPagina();
-      const f = g.fotos[k];
-      const x = M + colum * (cw + gap);
-      doc.setDrawColor(30, 58, 138);
-      doc.setLineWidth(0.5);
-      doc.rect(x, y, cw, ch);
-      const d = datos.get(f) ?? null;
-      const maxH = ch - rotulo - 2,
-        maxW = cw - 2;
-      if (d) {
-        const esc = Math.min(maxW / d.w, maxH / d.h);
-        const iw = d.w * esc,
-          ih = d.h * esc;
-        doc.addImage(d.data, d.fmt, x + (cw - iw) / 2, y + 1 + (maxH - ih) / 2, iw, ih, undefined, 'MEDIUM');
-      } else {
-        doc.setFontSize(7.5);
-        doc.setTextColor(150);
-        doc.setFont('helvetica', 'normal');
-        const aviso = f.url ? 'Foto no disponible' : `Foto no encontrada (timestamp ${f.timestamp || '—'})`;
-        doc.text(doc.splitTextToSize(aviso, cw - 8), x + cw / 2, y + maxH / 2, { align: 'center' });
-        doc.setTextColor(0);
-      }
-      // Rótulo debajo de la foto: «Foto n de N · qué muestra» y la hora en que se tomó
-      doc.setFillColor(30, 58, 138);
-      doc.rect(x, y + ch - rotulo, cw, rotulo, 'F');
-      doc.setTextColor(255);
-      const titFoto = `Foto ${k + 1} de ${g.fotos.length} · ${f.etiqueta?.trim() || 'Evidencia'}`;
-      textoCaja(doc, titFoto, x, y + ch - rotulo, cw, 4.6, { fs: 7, min: 5, estilo: 'bold', pad: 2.5 });
-      doc.setTextColor(255);
-      textoCaja(doc, f.timestamp ? `Tomada: ${horaFoto(f.timestamp)}` : 'Hora no registrada', x, y + ch - 4.4, cw, 4, {
-        fs: 6.5,
-        min: 5,
-        pad: 2.5,
-      });
+  // --- Grilla de fotos
+  /** Alto de fila para que entren 2 filas en lo que queda de la página (con lugar para las bandas del 1A). */
+  const calcularFila = () => {
+    const reserva = conBandas ? 2 * (altoBanda + 1) : 0;
+    return Math.min(125, Math.max(70, (pie - y - gap - reserva) / 2));
+  };
+  const banda = (txt: string) => {
+    doc.setFillColor(229, 231, 235);
+    doc.rect(M, y, w, altoBanda, 'F');
+    doc.setTextColor(17, 24, 39);
+    textoCaja(doc, txt, M, y, w, altoBanda, { fs: 7.5, min: 5.5, estilo: 'bold', pad: 2 });
+    doc.setTextColor(0);
+    y += altoBanda + 1;
+  };
+  const celda = (f: FotoAnexo, x: number, yC: number, alto: number) => {
+    // Marco y foto con su proporción real
+    doc.setDrawColor(160);
+    doc.setLineWidth(0.25);
+    doc.rect(x, yC, cw, alto);
+    const d = datos.get(f.foto) ?? null;
+    const maxW = cw - 2,
+      maxH = alto - altoPie - 2;
+    if (d) {
+      const esc = Math.min(maxW / d.w, maxH / d.h);
+      const iw = d.w * esc,
+        ih = d.h * esc;
+      doc.addImage(d.data, d.fmt, x + (cw - iw) / 2, yC + 1 + (maxH - ih) / 2, iw, ih, undefined, 'MEDIUM');
+    } else {
+      doc.setFontSize(7.5);
+      doc.setTextColor(150);
+      doc.setFont('helvetica', 'normal');
+      const aviso = f.foto.url ? 'Foto no disponible' : `Foto no encontrada (timestamp ${f.foto.timestamp || '—'})`;
+      doc.text(doc.splitTextToSize(aviso, cw - 8), x + cw / 2, yC + maxH / 2, { align: 'center' });
       doc.setTextColor(0);
-      if (colum === 1 || k === g.fotos.length - 1) y += ch + gap;
     }
-    y += 2;
+    // Pie compacto: qué documenta (hasta 2 renglones, se achica si hace falta) y la hora
+    const yp = yC + alto - altoPie;
+    if (f.clase === 'adicional') doc.setFillColor(30, 58, 138);
+    else if (f.clase === 'no') doc.setFillColor(185, 28, 28);
+    else doc.setFillColor(75, 85, 99);
+    doc.rect(x, yp, cw, altoPie, 'F');
+    const pre = f.clase === 'adicional' ? 'REGISTRO ADICIONAL' : f.clase === 'no' ? 'NO CUMPLE' : 'EVIDENCIA';
+    doc.setTextColor(255);
+    textoCaja(doc, `${pre} · ${f.item}`, x, yp + 0.3, cw, 6.2, { fs: 7, min: 5, estilo: 'bold', pad: 2 });
+    doc.setTextColor(255);
+    const hora = f.foto.timestamp ? `Tomada: ${horaFoto(f.foto.timestamp)}` : 'Hora no registrada';
+    textoCaja(doc, hora, x, yp + 6.2, cw, 3.2, { fs: 5.8, min: 5, pad: 2 });
+    doc.setTextColor(0);
+  };
+
+  for (const sec of o.secciones) {
+    if (!sec.fotos.length) continue;
+    // La banda de la muestra va con al menos una fila de fotos; si no entran, página nueva
+    if (sec.banda) {
+      const fila = altoFila || calcularFila();
+      if (y + altoBanda + 1 + fila > pie + 0.01) nuevaPagina();
+      banda(sec.banda);
+    }
+    for (let k = 0; k < sec.fotos.length; k += 2) {
+      if (!altoFila) altoFila = calcularFila();
+      if (y + altoFila > pie + 0.01) {
+        nuevaPagina();
+        if (sec.banda) banda(`${sec.banda} (continuación)`);
+        altoFila = calcularFila();
+      }
+      celda(sec.fotos[k], M, y, altoFila);
+      if (sec.fotos[k + 1]) celda(sec.fotos[k + 1], M + cw + gap, y, altoFila);
+      y += altoFila + gap;
+    }
   }
 }
 

@@ -64,6 +64,7 @@ import {
   type PlanItem,
   type SupervisadaApp,
 } from '../services/formatosService';
+import { guardarAnexarF4, leerAnexarF4, pdf1AConAnexo, pdf2AConAnexo, type PdfUnido } from '../utils/formatosConAnexo';
 
 const POR_PAGINA = 15;
 const PLAN_POR_PAGINA = 20;
@@ -163,6 +164,13 @@ export default function FormatosPage() {
     }
   }, [conFotos]);
   const f = <T extends Supervisada>(l: T[]): T[] => (conFotos ? l : sinFotos(l));
+  // Formato 4 de cada suministro dentro del PDF del 1A/2A (se recuerda por navegador)
+  const [anexarF4, setAnexarF4] = useState<boolean>(leerAnexarF4);
+  useEffect(() => guardarAnexarF4(anexarF4), [anexarF4]);
+  const [progresoTxt, setProgresoTxt] = useState('');
+  const opAnexo = { onProgreso: setProgresoTxt };
+  const doc1A = (b: SupervisadaApp[]) => (anexarF4 ? pdf1AConAnexo(f(b), hoja, opAnexo) : pdf1A(f(b), hoja));
+  const doc2A = (s: SupervisadaApp) => (anexarF4 ? pdf2AConAnexo(f([s])[0], hoja, opAnexo) : pdf2A(f([s])[0], hoja));
   const [selId, setSelId] = useState<string | null>(null);
   const [pag, setPag] = useState(0);
   const [filtro, setFiltro] = useState<Filtro>('todos');
@@ -266,34 +274,43 @@ export default function FormatosPage() {
     );
 
   // Vista previa del PDF dentro de la página (no descarga nada)
-  const ver = async (clave: string, f: () => Promise<jsPDF>, nombre: string) => {
+  const ver = async (clave: string, f: () => Promise<jsPDF | PdfUnido>, nombre: string) => {
     setOcupado(clave);
+    setProgresoTxt('');
     try {
       await prepararLogo(brandAsset('logo-horizontal.webp'));
       const doc = await f();
-      doc.setProperties({ title: nombre });
-      const t = doc.internal.pageSize;
-      setVista({
-        url: String(doc.output('bloburl')),
-        nombre,
-        horizontal: t.getWidth() > t.getHeight(),
-        paginas: doc.getNumberOfPages(),
-      });
+      if ('blob' in doc) {
+        // Con el Formato 4 anexado (PDF unido con pdf-lib)
+        setVista({ url: URL.createObjectURL(doc.blob), nombre, horizontal: doc.horizontal, paginas: doc.paginas });
+      } else {
+        doc.setProperties({ title: nombre });
+        const t = doc.internal.pageSize;
+        setVista({
+          url: String(doc.output('bloburl')),
+          nombre,
+          horizontal: t.getWidth() > t.getHeight(),
+          paginas: doc.getNumberOfPages(),
+        });
+      }
     } catch (e) {
       setAviso({ tono: 'error', texto: `No se pudo armar el PDF: ${(e as Error).message}` });
     } finally {
       setOcupado(null);
+      setProgresoTxt('');
     }
   };
+  const aBlob = async (d: jsPDF | PdfUnido) => ('blob' in d ? d.blob : d.output('blob'));
 
   const zip = async () => {
     setOcupado('zip');
+    setProgresoTxt('');
     try {
       await prepararLogo(brandAsset('logo-horizontal.webp'));
       const z = new JSZip();
-      for (const [num, b] of bloques) z.file(`1A/${num}_${proc}.pdf`, (await pdf1A(f(b), hoja)).output('blob'));
-      for (const s of coincidentes)
-        z.file(`2A/${s.reporte}_${s.punto.suministro}.pdf`, (await pdf2A(f([s])[0], hoja)).output('blob'));
+      for (const [num, b] of bloques) z.file(`1A/${num}_${proc}.pdf`, await aBlob(await doc1A(b)));
+      for (const s of coincidentes) z.file(`2A/${s.reporte}_${s.punto.suministro}.pdf`, await aBlob(await doc2A(s)));
+      setProgresoTxt('Comprimiendo…');
       const blob = await z.generateAsync({ type: 'blob' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
@@ -305,6 +322,7 @@ export default function FormatosPage() {
       setAviso({ tono: 'error', texto: `No se pudo armar el ZIP: ${(e as Error).message}` });
     } finally {
       setOcupado(null);
+      setProgresoTxt('');
     }
   };
 
@@ -675,10 +693,10 @@ export default function FormatosPage() {
                 onFoto={(photos, i) => setGaleria({ photos, suministro: String(actual.punto.suministro), i })}
                 onPdf={() =>
                   actual.tipo === '2A'
-                    ? ver('2a', () => pdf2A(f([actual])[0], hoja), `${actual.reporte}_${actual.punto.suministro}.pdf`)
+                    ? ver('2a', () => doc2A(actual), `${actual.reporte}_${actual.punto.suministro}.pdf`)
                     : ver(
                         '1a',
-                        () => pdf1A(f(bloques.find(([n]) => n === actual.reporte)?.[1] ?? [actual]), hoja),
+                        () => doc1A(bloques.find(([n]) => n === actual.reporte)?.[1] ?? [actual]),
                         `${actual.reporte}_${proc}.pdf`,
                       )
                 }
@@ -701,10 +719,20 @@ export default function FormatosPage() {
                 />
                 Incluir fotos <span className="text-gray-500">(evidencias de los NO y registro adicional)</span>
               </label>
+              <label className="flex cursor-pointer items-center gap-2 text-xs text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={anexarF4}
+                  onChange={(e) => setAnexarF4(e.target.checked)}
+                  className="h-4 w-4 accent-electric"
+                />
+                Anexar el Formato 4 de cada suministro{' '}
+                <span className="text-gray-500">(después de la hoja del 1A/2A; con fotos, tarda más)</span>
+              </label>
               <button className={ui.btnSuccess} disabled={ocupado !== null} onClick={zip}>
                 <Archive size={15} />{' '}
                 {ocupado === 'zip'
-                  ? 'Armando ZIP…'
+                  ? progresoTxt || 'Armando ZIP…'
                   : `Descargar ZIP (${bloques.length} SP + ${coincidentes.length} SC)`}
               </button>
             </div>
@@ -720,10 +748,10 @@ export default function FormatosPage() {
                       key={num}
                       className="min-w-0 rounded-xl border border-gray-200 bg-white px-3 py-2 text-left transition hover:border-electric"
                       disabled={ocupado !== null}
-                      onClick={() => ver(num, () => pdf1A(f(b), hoja), `${num}_${proc}.pdf`)}
+                      onClick={() => ver(num, () => doc1A(b), `${num}_${proc}.pdf`)}
                     >
                       <span className="block text-sm font-semibold text-electric">
-                        {ocupado === num ? 'Armando…' : etiquetaReporte(b[0])}
+                        {ocupado === num ? progresoTxt || 'Armando…' : etiquetaReporte(b[0])}
                       </span>
                       <span className="block truncate text-[11px] text-gray-500">
                         {b.length} muestras · {b[0]?.fechaTxt.slice(0, 5)}–{b[b.length - 1]?.fechaTxt.slice(0, 5)}
@@ -745,9 +773,7 @@ export default function FormatosPage() {
                     key={id(s)}
                     className={ui.btnSecondary}
                     disabled={ocupado !== null}
-                    onClick={() =>
-                      ver(s.reporte, () => pdf2A(f([s])[0], hoja), `${s.reporte}_${s.punto.suministro}.pdf`)
-                    }
+                    onClick={() => ver(s.reporte, () => doc2A(s), `${s.reporte}_${s.punto.suministro}.pdf`)}
                   >
                     <Users size={14} /> {etiquetaReporte(s)} · {s.punto.suministro}
                     {!s.conforme && <span className="h-2 w-2 rounded-full bg-red-500" />}
