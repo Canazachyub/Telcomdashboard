@@ -13,6 +13,10 @@ import InventoryPage from './pages/InventoryPage';
 import RastreoPage from './pages/RastreoPage';
 import CruceJornadasPage from './pages/CruceJornadasPage';
 import ResumenJornadasPage from './pages/ResumenJornadasPage';
+// Pestaña Formatos 1A · 2A (formularios de la app)
+import FormatosPage from './pages/FormatosPage';
+// Entrega semanal guiada (Formato 4 + 1A + 2A en un ZIP)
+import EntregaSemanalPage from './pages/EntregaSemanalPage';
 
 // Basename derivado de `base` en vite.config.ts ('/Telcomdashboard/' -> '/Telcomdashboard')
 const ROUTER_BASENAME = import.meta.env.BASE_URL.replace(/\/$/, '') || '/';
@@ -122,6 +126,24 @@ function App() {
             element={
               <SupervisorRoute>
                 <InventoryPage />
+              </SupervisorRoute>
+            }
+          />
+
+          <Route
+            path="formatos"
+            element={
+              <SupervisorRoute>
+                <FormatosPage />
+              </SupervisorRoute>
+            }
+          />
+
+          <Route
+            path="entrega"
+            element={
+              <SupervisorRoute>
+                <EntregaSemanalPage />
               </SupervisorRoute>
             }
           />

@@ -1,9 +1,10 @@
-import { RefreshCw, Menu, CalendarRange } from 'lucide-react';
+import { RefreshCw, Menu } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
 import { usePointsStore } from '../../stores/pointsStore';
 import { roleLabels } from '../../types/user';
 import TerranClock from './TerranClock';
 import RoleAvatar from '../RoleAvatar';
+import JornadaSelector from './JornadaSelector';
 
 interface HeaderProps {
   onMenu: () => void;
@@ -11,7 +12,7 @@ interface HeaderProps {
 
 export default function Header({ onMenu }: HeaderProps) {
   const { user } = useAuthStore();
-  const { sheets, selectedSheet, setSelectedSheet, refreshPoints, isLoading } = usePointsStore();
+  const { refreshPoints, isLoading } = usePointsStore();
 
   return (
     <header className="sticky top-0 z-[1000] border-b border-line bg-navy-900/85 px-4 py-3 backdrop-blur-md sm:px-6">
@@ -25,24 +26,8 @@ export default function Header({ onMenu }: HeaderProps) {
         </button>
 
         {/* Selector de jornada */}
-        <div className="flex min-w-0 items-center gap-2 rounded-xl border border-line-strong bg-navy-800 py-1 pl-3 pr-1">
-          <CalendarRange size={16} className="shrink-0 text-electric" />
-          <div className="min-w-0">
-            <p className="hidden text-[10px] font-medium uppercase tracking-wider text-gray-400 sm:block">Jornada</p>
-            <select
-              value={selectedSheet || ''}
-              onChange={(e) => setSelectedSheet(e.target.value)}
-              className="max-w-[46vw] cursor-pointer truncate bg-transparent pr-1 text-sm font-semibold text-gray-900 outline-none sm:max-w-[260px]"
-              aria-label="Seleccionar jornada"
-            >
-              <option value="">Seleccionar...</option>
-              {sheets.map((sheet) => (
-                <option key={sheet.id} value={sheet.name}>
-                  {sheet.name}
-                </option>
-              ))}
-            </select>
-          </div>
+        <div className="flex min-w-0 items-center gap-1 rounded-xl border border-line-strong bg-navy-800 py-1 pl-3 pr-1">
+          <JornadaSelector />
           <button
             onClick={() => refreshPoints()}
             disabled={isLoading}

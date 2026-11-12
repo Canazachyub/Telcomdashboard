@@ -13,6 +13,9 @@ import {
   X,
   Layers,
   CalendarRange,
+  ClipboardCheck,
+  PackageCheck,
+  Star,
 } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
 import { brandAsset } from '../../config/brand';
@@ -22,6 +25,12 @@ interface MenuItem {
   path: string;
   icon: React.ReactNode;
   roles?: string[];
+  /** Texto chico al lado del nombre (p. ej. «Formato 4») */
+  hint?: string;
+  /** Tooltip al pasar el mouse */
+  title?: string;
+  /** Acción principal del grupo: se resalta con una estrella */
+  featured?: boolean;
 }
 
 interface MenuGroup {
@@ -29,29 +38,63 @@ interface MenuGroup {
   items: MenuItem[];
 }
 
+const SUP = ['admin', 'supervisor'];
+
+// Agrupado por tarea. Los permisos (roles) de cada opción son los mismos de siempre.
 const menuGroups: MenuGroup[] = [
   {
+    label: 'Campo',
     items: [
       { name: 'Dashboard', path: '/', icon: <LayoutDashboard size={18} /> },
       { name: 'Mapa', path: '/mapa', icon: <Map size={18} /> },
+      { name: 'Rastreo GPS', path: '/rastreo', icon: <Navigation size={18} />, roles: SUP },
       { name: 'Suministros', path: '/suministros', icon: <ClipboardList size={18} /> },
-      { name: 'Jornadas', path: '/jornadas', icon: <Calendar size={18} />, roles: ['admin', 'supervisor'] },
     ],
   },
   {
-    label: 'Supervisión',
+    label: 'Entregar a ELSE',
     items: [
-      { name: 'Resumen de jornadas', path: '/resumen', icon: <CalendarRange size={18} />, roles: ['admin', 'supervisor'] },
-      { name: 'Reportes', path: '/reportes', icon: <FileText size={18} />, roles: ['admin', 'supervisor'] },
-      { name: 'Cruce de jornadas', path: '/cruce', icon: <Layers size={18} />, roles: ['admin', 'supervisor'] },
-      { name: 'Observados', path: '/observados', icon: <AlertCircle size={18} />, roles: ['admin', 'supervisor'] },
-      { name: 'Rastreo GPS', path: '/rastreo', icon: <Navigation size={18} />, roles: ['admin', 'supervisor'] },
-      { name: 'Inventario', path: '/inventario', icon: <Package size={18} />, roles: ['admin', 'supervisor'] },
+      {
+        name: 'Entrega semanal',
+        path: '/entrega',
+        icon: <PackageCheck size={18} />,
+        roles: SUP,
+        featured: true,
+        title: 'Lo que hay que entregar a ELSE esta semana, paso a paso',
+      },
+      {
+        name: 'Reportes',
+        path: '/reportes',
+        icon: <FileText size={18} />,
+        roles: SUP,
+        hint: 'Formato 4',
+        title: 'Formato 4 · anexos de programación y fotos',
+      },
+      { name: 'Formatos 1A · 2A', path: '/formatos', icon: <ClipboardCheck size={18} />, roles: SUP },
+      {
+        name: 'Observados',
+        path: '/observados',
+        icon: <AlertCircle size={18} />,
+        roles: SUP,
+        hint: 'Formato 5',
+        title: 'Formato 5 · observados',
+      },
+    ],
+  },
+  {
+    label: 'Control',
+    items: [
+      { name: 'Resumen de jornadas', path: '/resumen', icon: <CalendarRange size={18} />, roles: SUP },
+      { name: 'Jornadas', path: '/jornadas', icon: <Calendar size={18} />, roles: SUP },
+      { name: 'Cruce de jornadas', path: '/cruce', icon: <Layers size={18} />, roles: SUP },
     ],
   },
   {
     label: 'Sistema',
-    items: [{ name: 'Usuarios', path: '/usuarios', icon: <Users size={18} />, roles: ['admin'] }],
+    items: [
+      { name: 'Usuarios', path: '/usuarios', icon: <Users size={18} />, roles: ['admin'] },
+      { name: 'Inventario', path: '/inventario', icon: <Package size={18} />, roles: SUP },
+    ],
   },
 ];
 
@@ -123,16 +166,27 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
                       to={item.path}
                       end={item.path === '/'}
                       onClick={onClose}
+                      title={item.title}
                       className={({ isActive }) =>
                         `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
                           isActive
                             ? 'bg-gradient-to-r from-blue-600/25 to-blue-600/5 text-white shadow-[inset_2px_0_0_var(--color-electric)]'
-                            : 'text-gray-500 hover:bg-navy-800 hover:text-gray-900'
+                            : item.featured
+                              ? 'border border-amber-500/40 bg-amber-500/10 text-gray-900 hover:bg-amber-500/20'
+                              : 'text-gray-500 hover:bg-navy-800 hover:text-gray-900'
                         }`
                       }
                     >
                       {item.icon}
-                      <span>{item.name}</span>
+                      <span className="min-w-0 flex-1">{item.name}</span>
+                      {item.featured && (
+                        <Star size={14} className="shrink-0 fill-amber-400 text-amber-400" aria-label="Principal" />
+                      )}
+                      {item.hint && (
+                        <span className="shrink-0 rounded border border-line px-1.5 py-px text-[10px] font-semibold text-gray-400">
+                          {item.hint}
+                        </span>
+                      )}
                     </NavLink>
                   ))}
                 </div>

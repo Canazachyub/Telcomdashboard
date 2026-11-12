@@ -11,7 +11,12 @@ import PhotoGalleryModal from '../components/PhotoGalleryModal';
 import JSZip from 'jszip';
 import { OBSERVACION_EJECUTADO, OBSERVACION_NO_EJECUTADO } from '../config/report';
 import { downloadCsv } from '../utils/csv';
-import { generateReportePDF, generateReportePDFSimple, generateReportePDFBlob, generateReportePDFSimpleBlob, DEFAULT_OBSERVACION, type ReportePDFData } from '../utils/pdfGenerator';
+import { generateReportePDF, generateReportePDFSimple, DEFAULT_OBSERVACION, type ReportePDFData } from '../utils/pdfGenerator';
+import { agregarAnexosAlZip, carpetaAnexos, itemsReporte, type ReporteItem } from '../utils/exportarAnexos';
+import IncluirFormatos from '../components/reportes/IncluirFormatos';
+import { useIncluirFormatos, type ItemExportado } from '../components/reportes/useIncluirFormatos';
+import { agregarFormatosAlZip, prepararLogo } from '../utils/pdfFormatos';
+import { brandAsset } from '../config/brand';
 
 // Configuracion de paginacion
 const PAGE_SIZES = [25, 50, 100, 200];
@@ -48,36 +53,8 @@ function getObservacionCategory(observacion: string | undefined): ObservacionCat
   return 'observaciones';
 }
 
-// Tipo para el reporte (solo puntos con lectura)
-interface ReporteItem {
-  numero: number;
-  serie: string;
-  suministro: string;
-  ruta: string;
-  lectura: string | number;
-  fechaContraste: string;
-  fechaSupervision: string;
-  tecnico: string;
-  distrito: string;
-  photoLinks: PhotoLink[];
-  point: GpsPointExtended;
-}
-
-// Formatear fecha para mostrar
-function formatDate(dateStr: string | null): string {
-  if (!dateStr) return '-';
-  try {
-    const date = new Date(dateStr);
-    if (isNaN(date.getTime())) return dateStr;
-    return date.toLocaleDateString('es-PE', {
-      day: '2-digit',
-      month: '2-digit',
-      year: '2-digit'
-    });
-  } catch {
-    return dateStr;
-  }
-}
+// ReporteItem, formatDate y el armado del ZIP del Formato 4 viven en utils/exportarAnexos.ts
+// (los comparte la página «Entrega semanal»).
 
 export default function ReportesPage() {
   const { filteredPoints, selectedSheet, isLoading, setFilter: setStoreFilter, resetFilters } = usePointsStore();
@@ -135,34 +112,11 @@ export default function ReportesPage() {
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0, currentFile: '' });
   const [showBatchModal, setShowBatchModal] = useState(false);
 
+  // Formatos 1A / 2A opcionales en el mismo ZIP (el Formato 4 no cambia)
+  const formatosCtl = useIncluirFormatos(selectedSheet, showBatchModal);
+
   // Filtrar solo puntos con lectura y construir items de reporte
-  const reporteItems = useMemo(() => {
-    const items: ReporteItem[] = [];
-    let numero = 1;
-
-    filteredPoints.forEach((point) => {
-      const extPoint = point as GpsPointExtended;
-
-      // Solo incluir puntos que tienen lectura
-      if (extPoint.lectura !== null && extPoint.lectura !== undefined && extPoint.lectura !== '') {
-        items.push({
-          numero: numero++,
-          serie: extPoint.serie?.toString() || '-',
-          suministro: extPoint.suministro,
-          ruta: extPoint.codigoRuta?.toString() || '-',
-          lectura: extPoint.lectura,
-          fechaContraste: formatDate(extPoint.fecha),
-          fechaSupervision: formatDate(extPoint.fechaSupervision),
-          tecnico: extPoint.tecnico || '-',
-          distrito: extPoint.distrito || '-',
-          photoLinks: extPoint.photoLinks || [],
-          point: extPoint,
-        });
-      }
-    });
-
-    return items;
-  }, [filteredPoints]);
+  const reporteItems = useMemo(() => itemsReporte(filteredPoints), [filteredPoints]);
 
   // Calcular maximo de fotos para columnas dinamicas
   const maxPhotos = useMemo(() => {
@@ -283,6 +237,36 @@ export default function ReportesPage() {
     }
   }, [observaciones, selectedSheet]);
 
+  // Agrega Formato_1A/ y Formato_2A/ al ZIP si se marcaron. Devuelve el texto para el aviso final
+  // ('' si no se marcó ninguno: así la exportación del Formato 4 queda exactamente como antes).
+  const { incluir: incluirFormatos, prepararSupervisadas, sinFormulario } = formatosCtl;
+  const agregarFormatos = useCallback(async (zip: JSZip, items: ItemExportado[]): Promise<string> => {
+    if (!incluirFormatos.f1A && !incluirFormatos.f2A) return '';
+    try {
+      setBatchProgress(prev => ({ ...prev, currentFile: 'Formatos 1A / 2A…' }));
+      await prepararLogo(brandAsset('logo-horizontal.webp'));
+      const lista = await prepararSupervisadas(items);
+      const n = await agregarFormatosAlZip(zip, lista, selectedSheet || 'Sin Jornada', incluirFormatos);
+      const faltan = sinFormulario(items.map(it => it.point));
+      let txt = '';
+      if (incluirFormatos.f1A) txt += `\nFormato 1A (reportes SP): ${n.n1A}`;
+      if (incluirFormatos.f2A) txt += `\nFormato 2A (coincidentes SC): ${n.n2A}`;
+      if (faltan.length) {
+        txt += `\n\nSin formulario 1A/2A (${faltan.length}): ${faltan.slice(0, 20).join(', ')}${faltan.length > 20 ? '…' : ''}`;
+      }
+      return txt;
+    } catch (error) {
+      console.error('Error generando Formatos 1A / 2A:', error);
+      return '\nNo se pudieron generar los Formatos 1A / 2A (el Formato 4 sí está en el ZIP).';
+    }
+  }, [incluirFormatos, prepararSupervisadas, sinFormulario, selectedSheet]);
+
+  // Suministros de la exportación completa sin formulario 1A/2A (aviso en la ventana de exportar)
+  const faltantesFormatos = useMemo(
+    () => (showBatchModal ? sinFormulario(sortedItems.map(item => item.point)) : []),
+    [showBatchModal, sinFormulario, sortedItems],
+  );
+
   // Generar todos los PDFs y empaquetarlos en ZIP
   const handleBatchExport = useCallback(async (withImages: boolean = false) => {
     if (sortedItems.length === 0) return;
@@ -292,7 +276,7 @@ export default function ReportesPage() {
     setBatchProgress({ current: 0, total: sortedItems.length, currentFile: '' });
 
     const zip = new JSZip();
-    const folder = zip.folder(`Anexos_${selectedSheet || 'Jornada'}_${new Date().toISOString().split('T')[0]}`);
+    const folder = zip.folder(carpetaAnexos(selectedSheet));
 
     if (!folder) {
       alert('Error creando carpeta ZIP');
@@ -300,51 +284,16 @@ export default function ReportesPage() {
       return;
     }
 
-    let successCount = 0;
-    let errorCount = 0;
+    const { successCount, errorCount } = await agregarAnexosAlZip(folder, sortedItems, {
+      withImages,
+      sheetName: selectedSheet || 'Sin Jornada',
+      observacion: (item) => observaciones[item.suministro] || '',
+      onProgress: (current, total, item) =>
+        setBatchProgress({ current, total, currentFile: `${item.suministro} (${current}/${total})` }),
+    });
 
-    for (let i = 0; i < sortedItems.length; i++) {
-      const item = sortedItems[i];
-      setBatchProgress({
-        current: i + 1,
-        total: sortedItems.length,
-        currentFile: `${item.suministro} (${i + 1}/${sortedItems.length})`
-      });
-
-      try {
-        const pdfData: ReportePDFData = {
-          numero: item.numero,
-          serie: item.serie,
-          suministro: item.suministro,
-          ruta: item.ruta,
-          lectura: item.lectura,
-          fechaContraste: item.fechaContraste,
-          fechaSupervision: item.fechaSupervision,
-          observacion: observaciones[item.suministro] || '',
-          photoLinks: item.photoLinks,
-          sheetName: selectedSheet || 'Sin Jornada'
-        };
-
-        let result: { blob: Blob; fileName: string };
-
-        if (withImages) {
-          result = await generateReportePDFBlob(pdfData);
-        } else {
-          result = generateReportePDFSimpleBlob(pdfData);
-        }
-
-        folder.file(result.fileName, result.blob);
-        successCount++;
-      } catch (error) {
-        console.error(`Error generando PDF para ${item.suministro}:`, error);
-        errorCount++;
-      }
-
-      // Pequena pausa para no bloquear la UI
-      if (i % 10 === 0) {
-        await new Promise(resolve => setTimeout(resolve, 50));
-      }
-    }
+    // Formatos 1A / 2A opcionales (carpetas aparte en la raíz del ZIP; mismo N° de muestra)
+    const extraFormatos = await agregarFormatos(zip, sortedItems.map(item => ({ point: item.point, muestra: item.numero })));
 
     // Generar y descargar ZIP
     try {
@@ -364,13 +313,13 @@ export default function ReportesPage() {
       const url = URL.createObjectURL(zipBlob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `Anexos_${selectedSheet || 'Jornada'}_${new Date().toISOString().split('T')[0]}.zip`;
+      link.download = `${carpetaAnexos(selectedSheet)}.zip`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      alert(`ZIP generado exitosamente!\n\nPDFs creados: ${successCount}\nErrores: ${errorCount}`);
+      alert(`ZIP generado exitosamente!\n\nPDFs creados: ${successCount}\nErrores: ${errorCount}${extraFormatos}`);
     } catch (error) {
       console.error('Error generando ZIP:', error);
       alert('Error al generar el archivo ZIP');
@@ -378,7 +327,7 @@ export default function ReportesPage() {
       setIsBatchExporting(false);
       setBatchProgress({ current: 0, total: 0, currentFile: '' });
     }
-  }, [sortedItems, observaciones, selectedSheet]);
+  }, [sortedItems, observaciones, selectedSheet, agregarFormatos]);
 
   // Calcular conteos por categoría de observación
   // NOTA: Los items sin observación tienen su propia categoría (SIN OBSERVACION)
@@ -436,7 +385,7 @@ export default function ReportesPage() {
     };
 
     const zip = new JSZip();
-    const folderName = `Anexos_${categoryNames[category]}_${selectedSheet || 'Jornada'}_${new Date().toISOString().split('T')[0]}`;
+    const folderName = carpetaAnexos(selectedSheet, categoryNames[category]);
     const folder = zip.folder(folderName);
 
     if (!folder) {
@@ -445,52 +394,18 @@ export default function ReportesPage() {
       return;
     }
 
-    let successCount = 0;
-    let errorCount = 0;
+    // Renumerar items filtrados (N.º según el filtro)
+    const { successCount, errorCount } = await agregarAnexosAlZip(folder, filteredItems, {
+      withImages,
+      sheetName: selectedSheet || 'Sin Jornada',
+      observacion: (item) => observaciones[item.suministro] || '',
+      numero: (_item, i) => i + 1,
+      onProgress: (current, total, item) =>
+        setBatchProgress({ current, total, currentFile: `${item.suministro} (${current}/${total})` }),
+    });
 
-    // Renumerar items filtrados
-    for (let i = 0; i < filteredItems.length; i++) {
-      const item = filteredItems[i];
-      setBatchProgress({
-        current: i + 1,
-        total: filteredItems.length,
-        currentFile: `${item.suministro} (${i + 1}/${filteredItems.length})`
-      });
-
-      try {
-        const pdfData: ReportePDFData = {
-          numero: i + 1, // Renumerar según el filtro
-          serie: item.serie,
-          suministro: item.suministro,
-          ruta: item.ruta,
-          lectura: item.lectura,
-          fechaContraste: item.fechaContraste,
-          fechaSupervision: item.fechaSupervision,
-          observacion: observaciones[item.suministro] || '',
-          photoLinks: item.photoLinks,
-          sheetName: selectedSheet || 'Sin Jornada'
-        };
-
-        let result: { blob: Blob; fileName: string };
-
-        if (withImages) {
-          result = await generateReportePDFBlob(pdfData);
-        } else {
-          result = generateReportePDFSimpleBlob(pdfData);
-        }
-
-        folder.file(result.fileName, result.blob);
-        successCount++;
-      } catch (error) {
-        console.error(`Error generando PDF para ${item.suministro}:`, error);
-        errorCount++;
-      }
-
-      // Pequeña pausa para no bloquear la UI
-      if (i % 10 === 0) {
-        await new Promise(resolve => setTimeout(resolve, 50));
-      }
-    }
+    // Formatos 1A / 2A opcionales (carpetas aparte en la raíz del ZIP; mismo N° de muestra)
+    const extraFormatos = await agregarFormatos(zip, filteredItems.map((item, i) => ({ point: item.point, muestra: i + 1 })));
 
     // Generar y descargar ZIP
     try {
@@ -516,7 +431,7 @@ export default function ReportesPage() {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      alert(`ZIP generado exitosamente!\n\nCategoría: ${categoryNames[category]}\nPDFs creados: ${successCount}\nErrores: ${errorCount}`);
+      alert(`ZIP generado exitosamente!\n\nCategoría: ${categoryNames[category]}\nPDFs creados: ${successCount}\nErrores: ${errorCount}${extraFormatos}`);
     } catch (error) {
       console.error('Error generando ZIP:', error);
       alert('Error al generar el archivo ZIP');
@@ -524,7 +439,7 @@ export default function ReportesPage() {
       setIsBatchExporting(false);
       setBatchProgress({ current: 0, total: 0, currentFile: '' });
     }
-  }, [sortedItems, observaciones, selectedSheet]);
+  }, [sortedItems, observaciones, selectedSheet, agregarFormatos]);
 
   // Renderizar icono de ordenamiento
   const SortIcon = ({ field }: { field: SortField }) => {
@@ -984,6 +899,15 @@ export default function ReportesPage() {
             </div>
 
             <div className="flex-1 space-y-5 overflow-y-auto p-5">
+              {/* Formatos 1A / 2A opcionales: se suman al ZIP de cualquiera de los botones de abajo */}
+              <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+                <IncluirFormatos
+                  control={formatosCtl}
+                  faltantes={faltantesFormatos}
+                  total={sortedItems.length}
+                />
+              </div>
+
               {/* Exportar por categoría (con imágenes) */}
               <div>
                 <h4 className="text-sm font-semibold text-gray-900">Por tipo de observación</h4>

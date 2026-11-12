@@ -1,0 +1,127 @@
+<mxfile host="drawio">
+  <diagram id="flujo" name="Flujo formatos 1A, 2A y 4">
+    <mxGraphModel dx="1600" dy="1400" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1700" pageHeight="2000" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="titulo" value="&lt;b style=&quot;font-size:20px&quot;&gt;Formatos 1A, 2A y 4: del celular al PDF&lt;/b&gt;&lt;br&gt;Contrato N° 111-2026 (CP-SER-SM-37-2026-ELSE) · versión 2 · 12-11-2026" style="text;html=1;align=left;verticalAlign=middle;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="20" y="10" width="1100" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="L1" value="TÉCNICO TELCOM (app, en campo)" style="swimlane;startSize=34;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="20" y="70" width="460" height="1060" as="geometry" />
+        </mxCell>
+        <mxCell id="L2" value="APP (automático, funciona sin señal)" style="swimlane;startSize=34;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="480" y="70" width="400" height="1060" as="geometry" />
+        </mxCell>
+        <mxCell id="L3" value="SERVIDOR (Code.gs + Sheets + Drive)" style="swimlane;startSize=34;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="880" y="70" width="380" height="1060" as="geometry" />
+        </mxCell>
+        <mxCell id="L4" value="DASHBOARD · Reportes de supervisión" style="swimlane;startSize=34;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="1260" y="70" width="420" height="1060" as="geometry" />
+        </mxCell>
+
+        <!-- Técnico -->
+        <mxCell id="t1" value="&lt;b&gt;Inicio de jornada&lt;/b&gt;&lt;br&gt;Elige la(s) hoja(s) = muestra que dio ELSE&lt;br&gt;(P227, NTCSE-U, NTCSE-R)" style="rounded=1;arcSize=40;whiteSpace=wrap;html=1;fillColor=#1ba1e2;fontColor=#ffffff;strokeColor=#006EAF;" vertex="1" parent="1">
+          <mxGeometry x="100" y="115" width="300" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="t2" value="&lt;b&gt;Llega al suministro&lt;/b&gt; y elige el tipo:&lt;br&gt;«Posterior» (lo normal) o «Coincidente» (la contratista está contrastando ahora)" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="95" y="210" width="310" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="t3" value="&lt;b&gt;Fotos guiadas (Formato 4)&lt;/b&gt;&lt;br&gt;&lt;div style=&quot;text-align:left&quot;&gt;1. Panorámica del predio&lt;br&gt;2. Medidor: placa + sticker + precinto (+ lectura)&lt;br&gt;3. Caja portamedidor cerrada&lt;br&gt;4. Solo coincidente: ensayo en curso&lt;br&gt;+ extras si hay observación&lt;/div&gt;" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="100" y="370" width="300" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="t4" value="&lt;b&gt;Formulario corto&lt;/b&gt; (Sí / No / N.A.)&lt;br&gt;1A: 10 preguntas · 2A: 22 preguntas + certificados&lt;br&gt;Todo viene en «Sí»; solo toca lo que está mal" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="100" y="515" width="300" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="t5" value="¿Marcó algún&lt;br&gt;&lt;b&gt;NO&lt;/b&gt;?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="175" y="615" width="150" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="t6" value="Escribe la observación&lt;br&gt;y toma foto de evidencia" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="30" y="735" width="170" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="t7" value="&lt;b&gt;Guardar&lt;/b&gt; → siguiente suministro" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="250" y="735" width="200" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="t8" value="&lt;b&gt;Sincroniza a mano&lt;/b&gt;&lt;br&gt;Fotos + formularios en la misma cola" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1ba1e2;fontColor=#ffffff;strokeColor=#006EAF;" vertex="1" parent="1">
+          <mxGeometry x="100" y="1000" width="300" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- App -->
+        <mxCell id="a1" value="&lt;b&gt;Prellena&lt;/b&gt;&lt;br&gt;&lt;div style=&quot;text-align:left&quot;&gt;• Suministro, N° muestra (col. A), fecha, hora, GPS&lt;br&gt;• Procedimiento y sector (nombre de la hoja)&lt;br&gt;• Fecha programada (col. C) y lectura&lt;br&gt;• 2A: patrón y carga de la última vez&lt;/div&gt;" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="510" y="225" width="340" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="a2" value="&lt;b&gt;Contador de la semana&lt;/b&gt;&lt;br&gt;Coincidentes: 3 de ~10 % de la muestra&lt;br&gt;Adicionales: 0 de 20 %" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="510" y="370" width="340" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="a3" value="&lt;b&gt;Revisa antes de guardar&lt;/b&gt;&lt;br&gt;Fotos obligatorias completas · fecha del sticker vs. programada · suministro de la muestra (o «adicional»)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="510" y="515" width="340" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="a4" value="&lt;b&gt;Marca «aviso 24 h»&lt;/b&gt;&lt;br&gt;El NO queda pendiente de notificar a la contratista" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="510" y="735" width="340" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="a5" value="Guarda en el celular (borrador)&lt;br&gt;sin número todavía" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="510" y="845" width="340" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- Servidor -->
+        <mxCell id="s1" value="&lt;b&gt;Acción nueva «guardarFormato»&lt;/b&gt;&lt;br&gt;Solo se agrega · la APK vieja sigue igual · id único: un reintento no duplica" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="905" y="995" width="330" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="s2" value="&lt;b&gt;Hoja oculta «_Formatos»&lt;/b&gt;&lt;br&gt;1 fila por suministro supervisado: tipo, respuestas, observación, fotos, jornada, técnico" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="905" y="845" width="330" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="s3" value="&lt;b&gt;Numera al generar&lt;/b&gt;&lt;br&gt;1A: bloques de 10 muestras (misma semana, procedimiento y sector) → &lt;b&gt;SP-2026-001&lt;/b&gt;&lt;br&gt;2A: cada suministro → &lt;b&gt;SC-2026-001&lt;/b&gt;&lt;br&gt;F4: mismo número de su reporte&lt;br&gt;Una vez dado, el número no cambia" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="905" y="645" width="330" height="115" as="geometry" />
+        </mxCell>
+
+        <!-- Dashboard -->
+        <mxCell id="d1" value="&lt;b&gt;Pestaña «Formatos»&lt;/b&gt; en Reportes&lt;br&gt;Semana de muestra · avance X / Y · coincidentes vs 10 % · días para el plazo (5.º día hábil)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1285" y="845" width="370" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="d2" value="&lt;b&gt;Revisar&lt;/b&gt; (evita la penalidad 1.07)&lt;br&gt;Tabla por suministro · ver fotos · corregir una respuesta · lista de NO por notificar a la contratista" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1285" y="735" width="370" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="d3" value="&lt;b&gt;Generar entrega de la semana&lt;/b&gt;&lt;br&gt;PDF 1A (10 por hoja) · PDF 2A · PDF 4 por suministro&lt;br&gt;ZIP: Entrega_2026S2-P227_Sem19.zip" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1285" y="600" width="370" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="d4" value="Se envía a ELSE por correo&lt;br&gt;(lo hace el supervisor)" style="rounded=1;arcSize=40;whiteSpace=wrap;html=1;fillColor=#9673a6;fontColor=#ffffff;strokeColor=#6c4d80;" vertex="1" parent="1">
+          <mxGeometry x="1370" y="490" width="200" height="55" as="geometry" />
+        </mxCell>
+
+        <!-- Flechas -->
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;" edge="1" parent="1" source="t1" target="t2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;" edge="1" parent="1" source="t2" target="t3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;" edge="1" parent="1" source="t3" target="t4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e4" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;" edge="1" parent="1" source="t4" target="t5"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e5" value="Sí" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;fontStyle=1;exitX=0;exitY=0.5;" edge="1" parent="1" source="t5" target="t6"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e6" value="No" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;fontStyle=1;exitX=1;exitY=0.5;" edge="1" parent="1" source="t5" target="t7"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e7" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;exitX=0.5;exitY=1;entryX=0.25;entryY=0;" edge="1" parent="1" source="t6" target="t7"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="115" y="815" /><mxPoint x="300" y="815" /></Array></mxGeometry></mxCell>
+        <mxCell id="e8" value="prellenado" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;dashed=1;strokeColor=#82b366;" edge="1" parent="1" source="a1" target="t2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e9" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;dashed=1;strokeColor=#82b366;" edge="1" parent="1" source="a2" target="t3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e10" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;dashed=1;strokeColor=#82b366;" edge="1" parent="1" source="a3" target="t4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e11" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;dashed=1;strokeColor=#b85450;exitX=0.5;exitY=0;entryX=0;entryY=0.5;" edge="1" parent="1" source="t6" target="a4"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="115" y="722" /><mxPoint x="490" y="722" /><mxPoint x="490" y="762" /></Array></mxGeometry></mxCell>
+        <mxCell id="e12" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;exitX=0.75;exitY=1;entryX=0;entryY=0.5;" edge="1" parent="1" source="t7" target="a5"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="400" y="870" /></Array></mxGeometry></mxCell>
+        <mxCell id="e13" value="siguiente suministro" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;dashed=1;fontSize=11;exitX=1;exitY=0.5;entryX=1;entryY=0.5;" edge="1" parent="1" source="t7" target="t2"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="465" y="762" /><mxPoint x="465" y="275" /></Array></mxGeometry></mxCell>
+        <mxCell id="e14" value="fin del día" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;fontSize=11;exitX=0.5;exitY=1;entryX=1;entryY=0.5;" edge="1" parent="1" source="a5" target="t8"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="680" y="1030" /></Array></mxGeometry></mxCell>
+        <mxCell id="e15" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeWidth=2;exitX=0.5;exitY=1;entryX=0;entryY=0.5;" edge="1" parent="1" source="t8" target="s1"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="250" y="1100" /><mxPoint x="880" y="1100" /><mxPoint x="880" y="1030" /></Array></mxGeometry></mxCell>
+        <mxCell id="e16" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;" edge="1" parent="1" source="s1" target="s2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e17" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeWidth=2;" edge="1" parent="1" source="s2" target="d1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e18" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;" edge="1" parent="1" source="d1" target="d2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e19" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;" edge="1" parent="1" source="d2" target="d3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e20" value="pide números" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;fontSize=11;exitX=0;exitY=0.5;entryX=1;entryY=0.5;" edge="1" parent="1" source="d3" target="s3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e21" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;" edge="1" parent="1" source="d3" target="d4"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- Reglas -->
+        <mxCell id="reglas" value="&lt;b style=&quot;font-size:14px&quot;&gt;Reglas del contrato N° 111-2026 (bases integradas, Anexo N° 01)&lt;/b&gt;&lt;br&gt;&lt;div style=&quot;text-align:left&quot;&gt;• &lt;b&gt;Muestra:&lt;/b&gt; la define ELSE cada semana o mes por programa (P-227, NTCSE-U, NTCSE-R). Se supervisa &lt;b&gt;cada suministro de la muestra&lt;/b&gt; (pen. 1.08: S/150 por suministro y día).&lt;br&gt;• &lt;b&gt;Posterior → 1A:&lt;/b&gt; todos los de la muestra; 10 por reporte &lt;b&gt;SP-2026-001&lt;/b&gt;. &lt;b&gt;Coincidente → 2A:&lt;/b&gt; ~10 % de la muestra semanal, los elige TELCOM; 1 por reporte &lt;b&gt;SC-2026-001&lt;/b&gt;.&lt;br&gt;• &lt;b&gt;Formato 4:&lt;/b&gt; uno por cada suministro supervisado, con las fotos mínimas. &lt;b&gt;Adicionales:&lt;/b&gt; hasta 20 % por tipo y mes, avisar cada día por correo al supervisor ELSE.&lt;br&gt;• &lt;b&gt;Plazo:&lt;/b&gt; 5.º día hábil tras la semana de muestra. &lt;b&gt;Observaciones:&lt;/b&gt; notificar a la contratista en ≤24 h (pen. 1.09: S/300). &lt;b&gt;Dato erróneo&lt;/b&gt; en formato: pen. 1.07 S/100 por suministro.&lt;/div&gt;" style="rounded=1;arcSize=4;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;verticalAlign=top;spacingTop=6;spacingLeft=10;spacingRight=10;" vertex="1" parent="1">
+          <mxGeometry x="20" y="1150" width="1660" height="120" as="geometry" />
+        </mxCell>
+
+        <mxCell id="casos" value="&lt;b style=&quot;font-size:14px&quot;&gt;Casos especiales&lt;/b&gt;&lt;br&gt;&lt;div style=&quot;text-align:left&quot;&gt;&lt;b&gt;1. Varias hojas a la vez:&lt;/b&gt; cada formulario guarda su hoja; al generar, el 1A agrupa por semana + procedimiento + sector (P227 y NTCSE nunca se mezclan en un reporte).&lt;br&gt;&lt;b&gt;2. «No ejecuta el contraste en la fecha»:&lt;/b&gt; igual es muestra 1A; sticker/fecha en NO → no conforme y aviso 24 h. Si la contratista usó un &lt;b&gt;alternativo&lt;/b&gt;, va al Formato 5 (después).&lt;br&gt;&lt;b&gt;3. Suministro fuera de la muestra:&lt;/b&gt; la app pregunta si es «adicional»; cuenta para el tope de 20 %.&lt;br&gt;&lt;b&gt;4. Mismo suministro dos veces:&lt;/b&gt; la app avisa; queda uno solo (el último) salvo que el supervisor diga otra cosa.&lt;br&gt;&lt;b&gt;5. Se corrige el código o se trae de otra jornada:&lt;/b&gt; el formulario sigue a la foto (corregirSuministro / traerSuministro).&lt;br&gt;&lt;b&gt;6. Sin señal:&lt;/b&gt; todo se guarda en el celular; los números SP/SC solo existen al generar en el dashboard.&lt;br&gt;&lt;b&gt;7. Técnico con la APK vieja:&lt;/b&gt; sube fotos sin formulario; el dashboard lo marca «sin formulario» y el supervisor lo completa ahí.&lt;br&gt;&lt;b&gt;8. Bloque incompleto:&lt;/b&gt; si la semana cierra con 7 muestras sueltas, el último 1A sale con 7 columnas y 3 en blanco.&lt;/div&gt;" style="rounded=1;arcSize=3;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;verticalAlign=top;spacingTop=6;spacingLeft=10;spacingRight=10;" vertex="1" parent="1">
+          <mxGeometry x="20" y="1285" width="1660" height="200" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

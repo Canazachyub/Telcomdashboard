@@ -3,6 +3,7 @@ import ErrorBoundary from '../ErrorBoundary';
 import { useEffect, useState } from 'react';
 import Sidebar from './Sidebar';
 import Header from './Header';
+import AvisoSesion from './AvisoSesion';
 import { usePointsStore } from '../../stores/pointsStore';
 import SuministroDrawer from '../SuministroDrawer';
 
@@ -22,6 +23,7 @@ export default function Layout() {
 
       {/* Contenido principal */}
       <div className="flex min-w-0 flex-1 flex-col">
+        <AvisoSesion />
         <Header onMenu={() => setMenuOpen(true)} />
 
         <main className="flex-1 overflow-auto p-4 sm:p-6">
