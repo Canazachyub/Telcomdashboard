@@ -779,10 +779,26 @@ console.log('OK getSheets oculta solo las hojas internas nuevas');
   assert.match(fE.editado, /sup@x\.com/);
   r = j(doPost({ parameter: { payload: JSON.stringify({ action: 'editarFormato', token: 'TOKEN_SUP', hoja: 'JORNADA H', id: 'h1a-0', cambios: { patron: 'X' } }) } }));
   assert.equal(r.success, true, 'doPost enruta editarFormato');
+  // Fotos de evidencia: se eligen entre las fotos del mismo suministro, por la hora (AF)
+  const filaEv = jh.rows.length;
+  jh.rows.push(fila(98, H[0].sum, 'S', { 31: '20/11/2026 09:40:00', 33: 'TEC12345', 34: 'Yub' }));
+  r = editar({ cambios: { evidencias: [{ timestamp: '20/11/2026 09:40:00', pregunta: 'caja_cerrada' }] } });
+  assert.equal(r.success, true, r.message);
+  assert.deepEqual([jh.rows[filaEv][36], jh.rows[filaEv][48]], ['Evidencia · caja_cerrada', 'h1a-0']);
+  fE = j(handleGetFormatos('JORNADA H')).formatos.find((x) => x.id === 'h1a-0');
+  assert.ok(fE.fotos.some((x) => x.rol === 'Evidencia · caja_cerrada' && x.timestamp === '20/11/2026 09:40:00'));
+  assert.match(editar({ cambios: { evidencias: [{ timestamp: H[0].ts, pregunta: 'caja_cerrada' }] } }).message, /es la casilla/);
+  assert.match(editar({ cambios: { evidencias: [{ timestamp: '01/01/2020 00:00:00', pregunta: '' }] } }).message, /Foto no encontrada/);
+  assert.match(editar({ cambios: { evidencias: [{ timestamp: '20/11/2026 09:40:00', pregunta: 'inventada' }] } }).message, /Pregunta desconocida/);
+  assert.equal(jh.rows[filaEv][36], 'Evidencia · caja_cerrada', 'los rechazos no cambian las fotos');
+  r = editar({ cambios: { evidencias: [] } });
+  assert.deepEqual([r.success, jh.rows[filaEv][36], jh.rows[filaEv][48]], [true, '', ''], 'quitar la evidencia');
+  assert.equal(jh.rows[filaH0 - 1][36], 'Panorámica del predio', 'la casilla sigue igual');
+  jh.rows.pop();
   assert.equal(guardarEn('JORNADA H', H[0]).success, true);
   assert.equal(jh.rows[filaE][53], '', 'un reenvío de la app borra la marca EDITADO');
   assert.equal(j(handleGetFormatos('JORNADA H')).formatos.find((x) => x.id === 'h1a-0').editado, '');
-  console.log('OK editarFormato: solo admin/supervisor, valida, recalcula conforme e ítems NO, marca BB y no toca AZ/BA/fotos');
+  console.log('OK editarFormato: solo admin/supervisor, valida, recalcula conforme e ítems NO, marca BB, cambia evidencias y no toca AZ/BA/casillas');
 
   // --- Los lectores de siempre y getSheets no cambian ---
   assert.equal(JSON.stringify(jh.rows.map((x) => x.slice(0, 36))), antesAJ, 'A–AJ intactas');

@@ -720,11 +720,12 @@ function formato_fechaProgramada_(v, zona) {
 }
 
 /**
- * POST { action: 'editarFormato', token, hoja, id, cambios: { resp, observacion, fechaSticker, lectura, patron, carga } }
+ * POST { action: 'editarFormato', token, hoja, id, cambios: { resp, observacion, fechaSticker, lectura, patron, carga, evidencias } }
+ * evidencias = [{ timestamp, pregunta }] con TODAS las fotos de evidencia del formulario (cambia AK/AW de esas filas).
  * Corrige desde el dashboard las respuestas de un formulario ya recibido (token de ADMIN o SUPERVISOR).
  * Solo reescribe, en la fila del formulario: CONFORME (sale de resp: algún NO = no conforme),
  * FECHA_STICKER, OBS_FORMATO, ITEMS_NO, RESPUESTAS, CERT_PATRON, CERT_CARGA, LECTURA_FORMATO y BB EDITADO.
- * No toca fotos, fecha, recibido, número (AZ) ni aviso (BA). Los campos que no vienen quedan como estaban.
+ * No toca las casillas de fotos, fecha, recibido, número (AZ) ni aviso (BA). Los campos que no vienen quedan como estaban.
  * Respuesta: { id, fila, conforme, editado }
  */
 function handleEditarFormato(requestData) {
@@ -777,8 +778,57 @@ function handleEditarFormato(requestData) {
       return createResponse(false, 'El formato es demasiado grande');
     }
 
+    // Fotos de evidencia (opcional): lista COMPLETA de las evidencias del formulario, cada una por la hora
+    // con que la app la subió (AF) y el ítem que documenta ('' = evidencia general de la observación).
+    // Solo fotos del mismo suministro; no se puede usar una casilla del formulario ni una foto de otro.
+    const fotosEvid = {}; // fila (0-based) → etiqueta nueva ('' = deja de ser evidencia)
+    if (c.evidencias !== undefined) {
+      if (!Array.isArray(c.evidencias)) return createResponse(false, 'evidencias debe ser una lista');
+      const m = COLUMN_MAPPING.extended;
+      const base = formato_leerHoja_(sh).base;
+      const suministro = correccion_norm_(base[i][m.suministro]);
+      const validas = FORMATO_PREGUNTAS[tipo].map(function (p) { return p[0]; });
+      const pedidas = {}; // timestamp → etiqueta
+      for (let k = 0; k < c.evidencias.length; k++) {
+        const e = c.evidencias[k] || {};
+        const ts = formato_texto_(e.timestamp);
+        const pid = formato_texto_(e.pregunta);
+        if (!ts) return createResponse(false, 'Falta la hora de una foto de evidencia');
+        if (pid && validas.indexOf(pid) < 0) return createResponse(false, 'Pregunta desconocida para el ' + tipo + ': ' + pid);
+        pedidas[ts] = pid ? 'Evidencia · ' + pid : 'Evidencia de la observación';
+      }
+      const encontradas = {};
+      for (let k = 0; k < base.length; k++) {
+        const row = base[k];
+        if (row[m.numero] === '' || row[m.numero] === null) continue; // fila de la lista, no de foto
+        if (correccion_norm_(row[m.suministro]) !== suministro) continue;
+        const duenio = formato_texto_(extra[k][FC.idFoto]);
+        const etiqueta = formato_texto_(extra[k][FC.etiqueta]);
+        const esEvid = /^Evidencia/.test(etiqueta);
+        const sello = formato_sellos_(row[m.syncedAt], zona).filter(function (s) { return s in pedidas; })[0];
+        if (sello !== undefined) {
+          encontradas[sello] = true;
+          if (duenio && duenio !== id) return createResponse(false, 'La foto de ' + sello + ' ya es de otro formulario');
+          if (duenio === id && etiqueta && !esEvid) {
+            return createResponse(false, 'La foto de ' + sello + ' es la casilla «' + etiqueta + '» del formulario');
+          }
+          if (etiqueta !== pedidas[sello] || duenio !== id) fotosEvid[k] = pedidas[sello];
+        } else if (duenio === id && esEvid) {
+          fotosEvid[k] = ''; // ya no es evidencia
+        }
+      }
+      const faltan = Object.keys(pedidas).filter(function (t) { return !encontradas[t]; });
+      if (faltan.length) return createResponse(false, 'Foto no encontrada en el suministro: ' + faltan[0]);
+    }
+
     const aviso = formato_prepararColumnas_(sh);
     if (aviso) return createResponse(false, aviso);
+
+    Object.keys(fotosEvid).forEach(function (k) {
+      const et = fotosEvid[k];
+      sh.getRange(Number(k) + 2, FORMATO_COL_INICIO + FC.etiqueta).setNumberFormat('@').setValue(et);
+      sh.getRange(Number(k) + 2, FORMATO_COL_INICIO + FC.idFoto).setNumberFormat('@').setValue(et ? id : '');
+    });
 
     const editado = Utilities.formatDate(new Date(), zona, 'dd/MM/yyyy HH:mm') + ' · ' + usuario.email;
     const celdas = {};

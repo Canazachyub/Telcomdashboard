@@ -54,6 +54,7 @@ import {
 import {
   getFormatos,
   getPlanJornada,
+  formatosEnCache,
   aSupervisadas,
   numerarJornada,
   etiquetaReporte,
@@ -97,11 +98,18 @@ export default function FormatosPage() {
   const [recarga, setRecarga] = useState(0);
   const pedido = useRef(0);
 
+  const [refrescando, setRefrescando] = useState(false);
   useEffect(() => {
     if (!hoja) return;
     const n = ++pedido.current;
+    // La última copia de esta jornada se muestra al instante; la nueva la reemplaza al llegar
+    const copia = formatosEnCache(hoja);
+    if (copia) setDatos({ hoja, estado: 'listo', formatos: copia.formatos, plan: copia.plan, planSinServidor: false });
+    setRefrescando(true);
     Promise.all([getFormatos(hoja), getPlanJornada(hoja)]).then(([f, p]) => {
       if (pedido.current !== n) return; // llegó tarde: ya se pidió otra jornada
+      setRefrescando(false);
+      if (copia && !f.success && !f.sinInstalar) return; // sin conexión: se queda la copia
       setDatos({
         hoja,
         estado: f.sinInstalar ? 'sinServidor' : f.success ? 'listo' : 'error',
@@ -394,7 +402,8 @@ export default function FormatosPage() {
               </span>
             )}
             <button className={ui.btnSecondary} onClick={recargar} disabled={!hoja || estado === 'cargando'}>
-              <RefreshCw size={15} className={estado === 'cargando' ? 'animate-spin' : ''} /> Actualizar
+              <RefreshCw size={15} className={estado === 'cargando' || refrescando ? 'animate-spin' : ''} />{' '}
+              {refrescando && estado !== 'cargando' ? 'Actualizando…' : 'Actualizar'}
             </button>
           </>
         }

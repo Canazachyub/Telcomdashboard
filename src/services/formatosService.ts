@@ -76,6 +76,37 @@ export interface RespuestaFormatos {
   sinInstalar?: boolean;
 }
 
+// ------------------------------------------------------------------ Caché local (se muestra al instante)
+// Cada lectura del Apps Script tarda ~3 s. La última respuesta buena de cada jornada se guarda en el
+// navegador y la página la muestra de inmediato mientras pide la versión nueva (se reemplaza al llegar).
+
+const CLAVE_CACHE = 'telcom-formatos-cache-v1';
+type Cache = Record<string, { formatos?: FormatoServidor[]; plan?: PlanItem[]; t: number }>;
+const leerCache = (): Cache => {
+  try {
+    return JSON.parse(localStorage.getItem(CLAVE_CACHE) || '{}') as Cache;
+  } catch {
+    return {};
+  }
+};
+function guardarCache(hoja: string, datos: { formatos?: FormatoServidor[]; plan?: PlanItem[] }) {
+  try {
+    const c = leerCache();
+    c[hoja] = { ...c[hoja], ...datos, t: Date.now() };
+    // Solo las 8 jornadas más recientes
+    const claves = Object.keys(c).sort((a, b) => c[b].t - c[a].t);
+    for (const k of claves.slice(8)) delete c[k];
+    localStorage.setItem(CLAVE_CACHE, JSON.stringify(c));
+  } catch {
+    /* sin almacenamiento: no pasa nada, solo no hay caché */
+  }
+}
+/** Última copia guardada de la jornada (o null). */
+export function formatosEnCache(hoja: string): { formatos: FormatoServidor[]; plan: PlanItem[] } | null {
+  const e = leerCache()[hoja];
+  return e?.formatos ? { formatos: e.formatos, plan: e.plan ?? [] } : null;
+}
+
 export async function getFormatos(hoja: string): Promise<RespuestaFormatos> {
   try {
     const r = await fetch(`${API_POINTS}?action=getFormatos&sheetName=${encodeURIComponent(hoja)}`, {
@@ -85,6 +116,7 @@ export async function getFormatos(hoja: string): Promise<RespuestaFormatos> {
     const j = JSON.parse(text) as RespuestaFormatos;
     j.formatos = Array.isArray(j.formatos) ? j.formatos.filter((f) => f && (f.tipo === '1A' || f.tipo === '2A')) : [];
     if (!j.success && /Acción no reconocida/i.test(j.message || '')) j.sinInstalar = true;
+    if (j.success) guardarCache(hoja, { formatos: j.formatos });
     return j;
   } catch (e) {
     return { success: false, message: `No se pudo leer los formularios: ${(e as Error).message}`, formatos: [] };
@@ -126,6 +158,7 @@ export async function getPlanJornada(hoja: string): Promise<RespuestaPlan> {
           }))
       : [];
     if (!j.success && /Acción no reconocida/i.test(j.message || '')) j.sinInstalar = true;
+    if (j.success) guardarCache(hoja, { plan: j.plan });
     return j;
   } catch (e) {
     return { success: false, message: `No se pudo leer la programación: ${(e as Error).message}`, plan: [] };
@@ -186,6 +219,8 @@ export interface CambiosFormato {
   lectura?: string;
   patron?: string;
   carga?: string;
+  /** Lista COMPLETA de fotos de evidencia: hora de la foto (Synced_At) e ítem ('' = general). */
+  evidencias?: { timestamp: string; pregunta: string }[];
 }
 
 /** Corrige las respuestas de un formulario ya recibido (columna BB guarda quién y cuándo). */
