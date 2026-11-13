@@ -138,7 +138,7 @@ export interface Evidencia {
   /** Texto del ítem tal como sale en el formato. */
   texto: string;
   fotos: FotoEvidencia[];
-  /** Foto adicional (registro fotográfico de un ítem que no está en NO): va con rótulo azul, no «NO CUMPLE». */
+  /** Foto adicional (registro fotográfico de un ítem que no está en NO): va con rótulo azul, no «OBSERVACIÓN». */
   adicional?: boolean;
 }
 
@@ -1200,7 +1200,7 @@ const itemsSinFoto = (s: Supervisada) =>
 /**
  * Anexo fotográfico de las observaciones (A4 vertical, desde la página 2): grilla continua de 2 × 2, hasta 4
  * fotos por página. Cada foto respeta su proporción dentro de la celda y lleva debajo un pie compacto con el
- * ítem que documenta (rojo «NO CUMPLE · …» o azul «REGISTRO ADICIONAL · …») y la hora en que se tomó.
+ * ítem que documenta (ámbar «OBSERVACIÓN · …» o azul «REGISTRO ADICIONAL · …») y la hora en que se tomó.
  * Solo en la primera página: observaciones que no entraron en la página 1, la OBSERVACIÓN (si hay) y una línea
  * «Sin evidencia fotográfica: …». En el 1A cada muestra lleva una banda fina «Muestra N · suministro».
  * El pie y «Página x de y» los pone `pies` al final.
@@ -1328,10 +1328,10 @@ async function anexoFotografico(
     // Pie compacto: qué documenta (hasta 2 renglones, se achica si hace falta) y la hora
     const yp = yC + alto - altoPie;
     if (f.clase === 'adicional') doc.setFillColor(30, 58, 138);
-    else if (f.clase === 'no') doc.setFillColor(185, 28, 28);
+    else if (f.clase === 'no') doc.setFillColor(180, 83, 9);
     else doc.setFillColor(75, 85, 99);
     doc.rect(x, yp, cw, altoPie, 'F');
-    const pre = f.clase === 'adicional' ? 'REGISTRO ADICIONAL' : f.clase === 'no' ? 'NO CUMPLE' : 'EVIDENCIA';
+    const pre = f.clase === 'adicional' ? 'REGISTRO ADICIONAL' : f.clase === 'no' ? 'OBSERVACIÓN' : 'EVIDENCIA';
     doc.setTextColor(255);
     textoCaja(doc, `${pre} · ${f.item}`, x, yp + 0.3, cw, 6.2, { fs: 7, min: 5, estilo: 'bold', pad: 2 });
     doc.setTextColor(255);

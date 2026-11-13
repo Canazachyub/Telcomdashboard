@@ -103,19 +103,24 @@ export function leerResp(v: unknown): RespApp | undefined {
 
 // ---------------------------------------------------------------- Observación automática (como la app)
 
-export const lineaNoCumple = (texto: string) => `No cumple: ${texto}.`;
+export const lineaNoCumple = (texto: string) => `Observación: ${texto}.`;
+/** Redacción de las versiones anteriores de la app; se reconoce para no duplicar ni dejar líneas viejas. */
+const lineaAntigua = (texto: string) => `No cumple: ${texto}.`;
 
 /**
- * Deja una línea «No cumple: …» por cada ítem en NO (en ese orden) sin tocar lo que escribió la
- * persona; quita solo las líneas automáticas intactas de ítems que ya no están en NO.
+ * Deja una línea «Observación: …» por cada ítem en NO (en ese orden) sin tocar lo que escribió la
+ * persona; quita solo las líneas automáticas intactas (nuevas o antiguas «No cumple: …») de ítems
+ * que ya no están en NO. Si un ítem en NO ya tiene su línea antigua, no se agrega otra.
  */
 export function sincronizarObservacion(actual: string, enNo: string[], todos: string[]): string {
-  const deseadas = enNo.map(lineaNoCumple);
-  const automaticas = new Set(todos.map(lineaNoCumple));
-  const lineas = actual.split('\n').filter((l) => !(automaticas.has(l.trim()) && !deseadas.includes(l.trim())));
+  const deseadas = new Set(enNo.flatMap((t) => [lineaNoCumple(t), lineaAntigua(t)]));
+  const automaticas = new Set(todos.flatMap((t) => [lineaNoCumple(t), lineaAntigua(t)]));
+  const lineas = actual.split('\n').filter((l) => !(automaticas.has(l.trim()) && !deseadas.has(l.trim())));
   while (lineas.length && !lineas[lineas.length - 1].trim()) lineas.pop();
   const presentes = new Set(lineas.map((l) => l.trim()));
-  for (const d of deseadas) if (!presentes.has(d)) lineas.push(d);
+  for (const t of enNo) {
+    if (!presentes.has(lineaNoCumple(t)) && !presentes.has(lineaAntigua(t))) lineas.push(lineaNoCumple(t));
+  }
   return lineas.join('\n');
 }
 
