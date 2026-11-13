@@ -99,3 +99,74 @@ export function revisar(sup: SupervisadaApp[], plan: PlanItem[], puntos: GpsPoin
     provisionales: sup.filter((s) => s.provisional),
   };
 }
+
+// ------------------------------------------------------------------ chequeos (chips de la barra)
+
+export type EstadoItem = 'ok' | 'aviso' | 'bloquea' | 'na';
+export type ClaveChequeo = 'programados' | 'fotos' | 'avisos' | 'coincidentes' | 'numeros';
+
+export interface Chequeo {
+  clave: ClaveChequeo;
+  estado: EstadoItem;
+  /** Nombre corto del chip. */
+  etiqueta: string;
+  /** Conteo del chip («45/50», «3 sin avisar»…). */
+  conteo: string;
+  /** Título completo (el del panel de revisión). */
+  titulo: string;
+}
+
+/**
+ * Estado de cada chequeo antes de entregar. Verde: listo · ámbar: conviene arreglarlo (se puede saltar
+ * con «Entregar igual») · rojo: impide la entrega final · gris: todavía no se puede revisar.
+ */
+export function chequeos(rev: Revision, o: { conDatos: boolean; hayFormularios: boolean }) {
+  const n = (x: number) => x.toLocaleString('es-PE');
+  const { conDatos, hayFormularios } = o;
+  const fotos = rev.sinFotos.length + rev.sinLectura.length;
+  const lista: Chequeo[] = [
+    {
+      clave: 'programados',
+      estado: !conDatos || !rev.programados ? 'na' : rev.faltanSupervisar.length ? 'aviso' : 'ok',
+      etiqueta: 'Programados',
+      conteo:
+        !conDatos || !rev.programados
+          ? '—'
+          : `${n(rev.programados - rev.faltanSupervisar.length)}/${n(rev.programados)}`,
+      titulo: 'Todos los programados supervisados',
+    },
+    {
+      clave: 'fotos',
+      estado: !hayFormularios ? 'na' : fotos ? 'aviso' : 'ok',
+      etiqueta: 'Formato 4',
+      conteo: !hayFormularios ? '—' : fotos ? `${n(fotos)} con faltas` : 'completo',
+      titulo: 'Cada supervisado con su Formato 4',
+    },
+    {
+      clave: 'avisos',
+      estado: rev.porAvisar.length ? 'aviso' : !hayFormularios ? 'na' : 'ok',
+      etiqueta: 'Avisos 24 h',
+      conteo: rev.porAvisar.length ? `${n(rev.porAvisar.length)} sin avisar` : !hayFormularios ? '—' : 'al día',
+      titulo: 'No conformes avisados a la contratista (24 h)',
+    },
+    {
+      clave: 'coincidentes',
+      estado: !hayFormularios ? 'na' : rev.coincidentes < rev.metaCoincidentes ? 'aviso' : 'ok',
+      etiqueta: 'Coincidentes',
+      conteo: !hayFormularios ? '—' : `${n(rev.coincidentes)}/${n(rev.metaCoincidentes)}`,
+      titulo: 'Coincidentes: al menos el 10 % de lo supervisado',
+    },
+    {
+      clave: 'numeros',
+      estado: rev.provisionales.length ? 'bloquea' : !hayFormularios ? 'na' : 'ok',
+      etiqueta: 'Números',
+      conteo: rev.provisionales.length
+        ? `${n(rev.provisionales.length)} provisional${rev.provisionales.length === 1 ? '' : 'es'}`
+        : !hayFormularios
+          ? '—'
+          : 'fijos',
+      titulo: 'Números de reporte asignados',
+    },
+  ];
+  return lista;
+}

@@ -19,15 +19,22 @@ export function usePaquete(hoja: string, anexos: ReporteItem[], sup: Supervisada
   const carpetas = useMemo(() => estructuraPaquete(hoja, anexos, sup), [hoja, anexos, sup]);
 
   const [op, setOpEstado] = useState<OpcionesArmado>(() => ({ f4Fotos: false, fotos: true, anexarF4: leerAnexarF4() }));
-  // Con el Formato 4 anexado en cada 1A/2A, los anexos sueltos empiezan desmarcados (serían repetidos)
-  const [base, setBase] = useState<Record<GrupoPaquete, boolean>>(() => ({
-    f4: !leerAnexarF4(),
+  // Anexos sueltos: null = automático hasta que se toquen. Con el Formato 4 anexado en cada 1A/2A empiezan
+  // desmarcados (serían repetidos), salvo que la semana no tenga ningún 1A/2A: entonces son todo el paquete.
+  const [base, setBase] = useState<Record<GrupoPaquete, boolean | null>>(() => ({
+    f4: null,
     '1A': true,
     '2A': true,
   }));
   const [excepciones, setExcepciones] = useState<Set<string>>(() => new Set());
 
-  const incluido = (a: ArchivoPaquete) => base[a.grupo] !== excepciones.has(a.clave);
+  const hay1A2A = carpetas.some((c) => c.grupo !== 'f4' && c.archivos.length > 0);
+  const baseDe = (g: GrupoPaquete) => base[g] ?? !(op.anexarF4 && hay1A2A);
+  const incluido = (a: ArchivoPaquete) => baseDe(a.grupo) !== excepciones.has(a.clave);
+  /** Al marcar archivo por archivo, el automático queda fijo (si no, las excepciones se invertirían). */
+  const fijarBase = (lista: ArchivoPaquete[]) => {
+    if (base.f4 === null && lista.some((a) => a.grupo === 'f4')) setBase((b) => ({ ...b, f4: baseDe('f4') }));
+  };
 
   const sinExcepciones = (grupo: GrupoPaquete) =>
     setExcepciones((e) => {
@@ -42,10 +49,26 @@ export function usePaquete(hoja: string, anexos: ReporteItem[], sup: Supervisada
 
   const marcarArchivo = (a: ArchivoPaquete, v: boolean) => {
     if (incluido(a) === v) return;
+    fijarBase([a]);
     setExcepciones((e) => {
       const n = new Set(e);
       if (n.has(a.clave)) n.delete(a.clave);
       else n.add(a.clave);
+      return n;
+    });
+  };
+
+  /** Marca o desmarca varios archivos de una vez (p. ej. los que deja ver el buscador). */
+  const marcarVarios = (lista: ArchivoPaquete[], v: boolean) => {
+    const cambian = lista.filter((a) => incluido(a) !== v).map((a) => a.clave);
+    if (!cambian.length) return;
+    fijarBase(lista);
+    setExcepciones((e) => {
+      const n = new Set(e);
+      for (const k of cambian) {
+        if (n.has(k)) n.delete(k);
+        else n.add(k);
+      }
       return n;
     });
   };
@@ -80,6 +103,7 @@ export function usePaquete(hoja: string, anexos: ReporteItem[], sup: Supervisada
     incluido,
     marcarCarpeta,
     marcarArchivo,
+    marcarVarios,
     n4,
     n1A: sp.length,
     n2A: sc.length,
