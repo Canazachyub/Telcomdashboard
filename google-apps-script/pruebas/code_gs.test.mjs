@@ -134,7 +134,7 @@ const ctx = {
   console,
 };
 vm.createContext(ctx);
-vm.runInContext(fs.readFileSync(process.argv[2], 'utf8') + '\n;globalThis.__f={handleBuscarEnHojas,handleTraerSuministro,handleCorregirSuministro,handleRegistrarCredencial,handleGetCredenciales,handleGuardarFormato,handleGetFormatos,handleGetPlanJornada,handleMarcarCoincidente,handleAsignarNumeros,handleMarcarAvisado,doGet,doPost}; globalThis.__f2={instalarIndiceBusqueda,actualizarIndiceBusqueda,reconstruirIndiceBusqueda}; globalThis.__f3={handleGetSheets,handleGetAllPointsExtended,handleGetTrackingFromPhotos};;', ctx);
+vm.runInContext(fs.readFileSync(process.argv[2], 'utf8') + '\n;globalThis.__f={handleBuscarEnHojas,handleTraerSuministro,handleCorregirSuministro,handleRegistrarCredencial,handleGetCredenciales,handleGuardarFormato,handleGetFormatos,handleGetPlanJornada,handleMarcarCoincidente,handleAsignarNumeros,handleMarcarAvisado,handleEditarFormato,doGet,doPost}; globalThis.__f2={instalarIndiceBusqueda,actualizarIndiceBusqueda,reconstruirIndiceBusqueda}; globalThis.__f3={handleGetSheets,handleGetAllPointsExtended,handleGetTrackingFromPhotos};;', ctx);
 const { handleBuscarEnHojas, handleTraerSuministro, handleCorregirSuministro, handleRegistrarCredencial, handleGetCredenciales } = ctx.__f;
 vm.runInContext("verifyToken = (t) => (t === 'TOKEN_ADMIN' ? 'admin@x.com' : null);", ctx);
 const j = (r) => JSON.parse(r.getContent());
@@ -429,10 +429,10 @@ console.log('OK getSheets oculta solo las hojas internas nuevas');
   assert.equal(r.success, true, r.message);
   assert.deepEqual([r.id, r.fila, r.actualizado], ['uuid-0001', 4, false]);
   assert.ok(ctx.LockService.usos.includes('script'), 'escribe con el candado del script');
-  assert.equal(jf.maxCols, 53, 'agrega columnas hasta BA');
+  assert.equal(jf.maxCols, 54, 'agrega columnas hasta BB');
   assert.deepEqual(jf.rows[0].slice(AK), ['ETIQUETA_FOTO', 'FORMATO', 'FORMATO_ID', 'CONFORME', 'FECHA_STICKER', 'OBS_FORMATO',
     'ITEMS_NO', 'RESPUESTAS', 'CERT_PATRON', 'CERT_CARGA', 'RECIBIDO', 'FORMATO_FECHA', 'FORMATO_ID_FOTO', 'LECTURA_FORMATO',
-    'COINCIDENTE_PLAN', 'REPORTE', 'AVISADO']);
+    'COINCIDENTE_PLAN', 'REPORTE', 'AVISADO', 'EDITADO']);
   assert.equal(jf.rows[0].slice(0, 36).join('|'), HEAD.join('|'), 'encabezados A–AJ intactos');
   assert.equal(copiaAJ(), antesAJ, 'A–AJ de todas las filas intactas');
   assert.deepEqual(et(3), ['Medidor: placa, sticker y precinto', 'uuid-0001']);
@@ -457,7 +457,7 @@ console.log('OK getSheets oculta solo las hojas internas nuevas');
   assert.equal(r.formatos.length, 1);
   const fo = r.formatos[0];
   assert.deepEqual(Object.keys(fo).sort(), ['carga', 'conforme', 'fecha', 'fechaSticker', 'fotos', 'hoja', 'id', 'lectura',
-    'observacion', 'patron', 'recibido', 'resp', 'suministro', 'tecnico', 'tipo', 'reporte', 'avisado'].sort());
+    'observacion', 'patron', 'recibido', 'resp', 'suministro', 'tecnico', 'tipo', 'reporte', 'avisado', 'editado'].sort());
   assert.ok(!('odtId' in fo) && !JSON.stringify(r).includes('TEC12345'), 'nunca devuelve el odtId');
   assert.deepEqual([fo.id, fo.tipo, fo.hoja, fo.suministro, fo.fecha, fo.tecnico, fo.lectura, fo.fechaSticker, fo.conforme],
     ['uuid-0001', '1A', 'JORNADA F', SUM, '12/11/2026 10:35', 'Yub', '4321.5', '23/02/2026', false]);
@@ -576,7 +576,7 @@ console.log('OK getSheets oculta solo las hojas internas nuevas');
 // --- ampliación (tarde): plan de la jornada, coincidentes, numeración fija, avisos y links de fotos ---
 {
   const { handleGuardarFormato, handleGetFormatos, handleGetPlanJornada, handleMarcarCoincidente, handleAsignarNumeros,
-    handleMarcarAvisado, doGet, doPost } = ctx.__f;
+    handleMarcarAvisado, handleEditarFormato, doGet, doPost } = ctx.__f;
   const { handleGetAllPointsExtended, handleGetTrackingFromPhotos } = ctx.__f3;
   const props = ctx.PropertiesService.mem;
   ss.getSheetByName('Usuarios').rows.push(['sup@x.com', 'h', 'S', 'SUPERVISOR', 'TRUE'], ['tec@x.com', 'h', 'T', 'TECNICO', 'TRUE']);
@@ -749,6 +749,40 @@ console.log('OK getSheets oculta solo las hojas internas nuevas');
   assert.deepEqual([jh.rows[nuevaFila - 1][51], jh.rows[nuevaFila - 1][52]], ['', '']);
   jh.rows.pop();
   console.log('OK AZ (número) y BA (aviso) se mueven con el formulario, no se quedan en la fila');
+
+  // --- editarFormato (corrección desde el dashboard) ---
+  const editar = (extra) => j(handleEditarFormato({ token: 'TOKEN_SUP', hoja: 'JORNADA H', id: 'h1a-0', ...extra }));
+  r = j(handleEditarFormato({ token: 'TOKEN_TEC', hoja: 'JORNADA H', id: 'h1a-0', cambios: {} }));
+  assert.equal(r.success, false, 'un técnico no corrige desde el dashboard');
+  assert.equal(editar({}).success, false, 'sin cambios');
+  assert.match(editar({ cambios: { resp: { inventada: 'SI' } } }).message, /Pregunta desconocida/);
+  assert.match(editar({ cambios: { resp: { caja_cerrada: 'TAL VEZ' } } }).message, /Respuesta no válida/);
+  assert.equal(j(handleEditarFormato({ token: 'TOKEN_SUP', hoja: 'JORNADA H', id: 'no-existe', cambios: {} })).success, false);
+  const filaE = filaH0 - 1;
+  const antesE = jh.rows[filaE].slice();
+  assert.match(editar({ cambios: { resp: { caja_cerrada: 'NO' }, observacion: '' } }).message, /necesita una observación/);
+  assert.deepEqual(jh.rows[filaE], antesE, 'un rechazo no escribe nada');
+  r = editar({ cambios: { resp: { caja_cerrada: 'NO', sticker_ubicado: 'SI' }, observacion: 'No cumple: Caja cerrada y asegurada.', fechaSticker: '14/11/2026', lectura: '4521.3' } });
+  assert.equal(r.success, true, r.message);
+  assert.deepEqual([r.fila, r.conforme], [filaH0, false]);
+  assert.match(r.editado, /^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2} · sup@x\.com$/);
+  assert.deepEqual([jh.rows[filaE][39], jh.rows[filaE][41], jh.rows[filaE][42], jh.rows[filaE][43], jh.rows[filaE][49]],
+    ['NO', 'No cumple: Caja cerrada y asegurada.', 'Caja cerrada y asegurada', 'sticker_ubicado=SI; caja_cerrada=NO', '4521.3']);
+  assert.equal(jh.rows[filaE][40], '14/11/2026');
+  assert.deepEqual([jh.rows[filaE][51], jh.rows[filaE][52], jh.rows[filaE][46], jh.rows[filaE][38]],
+    [antesE[51], antesE[52], antesE[46], antesE[38]], 'número, aviso, recibido e id no cambian');
+  r = editar({ cambios: { resp: { caja_cerrada: 'SI' } } });
+  assert.deepEqual([r.success, r.conforme, jh.rows[filaE][39], jh.rows[filaE][42], jh.rows[filaE][41]],
+    [true, true, 'SI', '', 'No cumple: Caja cerrada y asegurada.'], 'sin NO vuelve a conforme; la observación se conserva si no llega');
+  let fE = j(handleGetFormatos('JORNADA H')).formatos.find((x) => x.id === 'h1a-0');
+  assert.deepEqual([fE.conforme, fE.resp.caja_cerrada, fE.lectura], [true, 'SI', '4521.3']);
+  assert.match(fE.editado, /sup@x\.com/);
+  r = j(doPost({ parameter: { payload: JSON.stringify({ action: 'editarFormato', token: 'TOKEN_SUP', hoja: 'JORNADA H', id: 'h1a-0', cambios: { patron: 'X' } }) } }));
+  assert.equal(r.success, true, 'doPost enruta editarFormato');
+  assert.equal(guardarEn('JORNADA H', H[0]).success, true);
+  assert.equal(jh.rows[filaE][53], '', 'un reenvío de la app borra la marca EDITADO');
+  assert.equal(j(handleGetFormatos('JORNADA H')).formatos.find((x) => x.id === 'h1a-0').editado, '');
+  console.log('OK editarFormato: solo admin/supervisor, valida, recalcula conforme e ítems NO, marca BB y no toca AZ/BA/fotos');
 
   // --- Los lectores de siempre y getSheets no cambian ---
   assert.equal(JSON.stringify(jh.rows.map((x) => x.slice(0, 36))), antesAJ, 'A–AJ intactas');

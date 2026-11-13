@@ -127,3 +127,12 @@ Todo es aditivo. Las acciones y columnas anteriores no cambian. Columnas nuevas 
 - `rol` = texto del ítem tal como se ve en la app, por ejemplo «Precinto de bornera instalado».
 - No existe la opción «escribir otra».
 - Las evidencias de un NO siguen como `Evidencia · <idPregunta>`, y la de la lectura como «Lectura del medidor».
+
+## Ampliación 2026-11-13: corregir desde el dashboard
+
+`POST { action: 'editarFormato', token, hoja, id, cambios: { resp?, observacion?, fechaSticker?, lectura?, patron?, carga? } }`
+(token de ADMIN o SUPERVISOR). `resp` usa los ids de la app (`SI` / `NO` / `N.A.`; vacío borra). El servidor recalcula
+CONFORME (algún NO = no conforme) e ITEMS_NO, exige observación si queda no conforme y escribe en la fila del
+formulario solo AN–AT y AX, más **BB EDITADO** = «dd/MM/yyyy HH:mm · correo». No toca fotos, AU RECIBIDO, AZ REPORTE ni
+BA AVISADO. Respuesta `{ id, fila, conforme, editado }`. `getFormatos` devuelve `editado`. Si después la app reenvía el
+mismo formulario, lo reemplaza y borra BB.

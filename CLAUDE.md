@@ -67,10 +67,11 @@ python -I app-movil/tool/smoke_produccion.py <URL_API>        # 18 revisiones co
 
 | Acción | Tipo | Qué hace |
 |---|---|---|
-| `guardarFormato` | POST | Formulario 1A/2A de la app (técnico registrado). Idempotente por `id`. Escribe en la **misma hoja de la jornada**, columnas AK–AX (AK etiqueta de cada foto, AL–AX el formulario en la fila de la panorámica) |
+| `guardarFormato` | POST | Formulario 1A/2A de la app (técnico registrado). Idempotente por `id`. Escribe en la **misma hoja de la jornada**, columnas AK–BB (AK etiqueta de cada foto, AL–AX el formulario en la fila de la panorámica) |
 | `getFormatos` | GET | Formularios de una jornada (+ `url` y `fila` de cada foto, `reporte`, `avisado`); sin `odtId` |
 | `getPlanJornada` | GET | Programados con fecha (col C), técnico (B) y coincidente planificado (AY) |
 | `marcarCoincidente` · `asignarNumeros` · `marcarAvisado` | POST | Token de sesión admin/supervisor. AY coincidente, AZ número fijo SP/SC (contadores anuales en Script Properties `contador_SP_<año>`/`contador_SC_<año>`), BA fecha del aviso |
+| `editarFormato` | POST | Token admin/supervisor. Corrige respuestas, observación, sticker/lectura o certificados con las reglas de la app (`components/formatos/EditorFormato.tsx`); BB guarda quién y cuándo |
 
 Nunca crear hojas nuevas para esto: todo va en la hoja de la jornada (A–AJ intactas).
 
@@ -117,8 +118,8 @@ npm run build
 | `/resumen` | `pages/ResumenJornadasPage.tsx` | Las N jornadas con fotos más recientes (revisa las últimas 20 + «Buscar en 15 más») |
 | `/mapa` | `pages/MapPage.tsx` | Asignar área estilo juego de estrategia: `map/SeleccionCaja.tsx` (recuadro; Shift suma, Alt quita, Espacio mueve) + `map/BarraAsignacion.tsx` (técnicos en teclas 1–9, Enter asigna con `assignTecnico`) |
 | `/rastreo` | `pages/RastreoPage.tsx` | GPS por última foto + capa «Registros de la app» (credenciales) |
-| `/entrega` | `pages/EntregaSemanalPage.tsx` | Entrega semanal guiada en 4 pasos (semana → revisar lo que falta → asignar números → un ZIP con Formato 4 + 1A + 2A) |
-| `/formatos` | `pages/FormatosPage.tsx` | Formularios 1A/2A reales, avisos 24 h, planificar coincidentes («Proponer el 10 %» o cantidad de ELSE) |
+| `/entrega` | `pages/EntregaSemanalPage.tsx` | Entrega semanal guiada en 4 pasos (semana → revisar lo que falta → asignar números → armador del ZIP con árbol de archivos y vista previa, `components/entrega/ArmadorPaquete.tsx`) |
+| `/formatos` | `pages/FormatosPage.tsx` | Formularios 1A/2A reales, «Corregir respuestas», avisos 24 h, planificar coincidentes («Proponer el 10 %» o cantidad de ELSE) |
 | `/usuarios` | `pages/UsersPage.tsx` | Crear usuarios con datos de credenciales (prefill) |
 
 - Gráficos propios en SVG, sin librerías: `components/resumen/Graficos.tsx` (`Anillo`,

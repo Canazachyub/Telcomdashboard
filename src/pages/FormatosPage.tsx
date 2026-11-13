@@ -1,8 +1,8 @@
 // Pestaña «Formatos 1A · 2A» de Reportes (contrato N° 111-2026, ELSE).
 // Datos reales: formularios que llena el técnico en la app (getFormatos), la programación de la
-// jornada (getPlanJornada) y los puntos de la hoja. Aquí NO se corrigen respuestas: eso va en la
-// app o en la hoja. Desde aquí se planifican coincidentes, se fijan los números SP / SC y se
-// registra el aviso de los no conformes. El Formato 4 (fotos) sigue en Reportes / Observados.
+// jornada (getPlanJornada) y los puntos de la hoja. Desde aquí se corrigen respuestas (con las
+// reglas de la app, components/formatos/EditorFormato), se planifican coincidentes, se fijan los
+// números SP / SC y se registra el aviso de los no conformes. El Formato 4 sigue en Reportes / Observados.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import JSZip from 'jszip';
@@ -27,6 +27,7 @@ import {
   FlaskConical,
   Shuffle,
   Sparkles,
+  PencilLine,
 } from 'lucide-react';
 import { usePointsStore } from '../stores/pointsStore';
 import { PageHeader, StatCard, SectionCard, Badge, EmptyState, ui } from '../components/ui';
@@ -34,6 +35,7 @@ import { brandAsset } from '../config/brand';
 import { Thumb } from '../components/PhotoStrip';
 import PhotoGalleryModal from '../components/PhotoGalleryModal';
 import VistaPdf, { type Vista } from '../components/formatos/VistaPdf';
+import EditorFormato from '../components/formatos/EditorFormato';
 import type { GpsPointExtended, PhotoLink } from '../types/point';
 import {
   pdf1A,
@@ -130,6 +132,7 @@ export default function FormatosPage() {
           id: `sim-${s.punto.rowIndex}-${s.tipo}`,
           provisional: true,
           avisadoEn: '',
+          editado: '',
           fotosApp: s.punto.photoLinks.map((p, k) => ({ url: p.url, rol: `Foto ${k + 1}`, timestamp: p.fecha })),
         })),
       );
@@ -179,6 +182,7 @@ export default function FormatosPage() {
   const [reporte, setReporte] = useState('');
   const [galeria, setGaleria] = useState<{ photos: PhotoLink[]; suministro: string; i: number } | null>(null);
   const [vista, setVista] = useState<Vista | null>(null);
+  const [editando, setEditando] = useState<SupervisadaApp | null>(null);
 
   // Al cambiar de jornada se limpia la selección y los filtros
   useEffect(() => {
@@ -392,15 +396,6 @@ export default function FormatosPage() {
             <button className={ui.btnSecondary} onClick={recargar} disabled={!hoja || estado === 'cargando'}>
               <RefreshCw size={15} className={estado === 'cargando' ? 'animate-spin' : ''} /> Actualizar
             </button>
-            <button
-              className={ui.btnPrimary}
-              onClick={onAsignar}
-              disabled={!provisionales || usarSimulado || ocupado !== null}
-              title="Fija los números SP / SC de los formularios que todavía no tienen"
-            >
-              {ocupado === 'numeros' ? <Loader2 size={15} className="animate-spin" /> : <Hash size={15} />}
-              Asignar números{provisionales ? ` (${provisionales})` : ''}
-            </button>
           </>
         }
       />
@@ -533,16 +528,28 @@ export default function FormatosPage() {
           </div>
 
           {provisionales > 0 && (
-            <button
-              onClick={() => setFiltro(filtro === 'provisional' ? 'todos' : 'provisional')}
-              className="flex w-full items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-left text-sm text-amber-800"
-            >
-              <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-              <span>
+            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
+              <AlertTriangle size={16} className="shrink-0" />
+              <span className="min-w-0 flex-1">
                 <b>{provisionales}</b> formulario{provisionales === 1 ? '' : 's'} con número <b>provisional</b>. Asigna
-                los números antes de entregar: los provisionales pueden cambiar si llegan más formularios.
+                los números antes de entregar: los provisionales pueden cambiar si llegan más formularios.{' '}
+                <button
+                  className="font-semibold underline underline-offset-2"
+                  onClick={() => setFiltro(filtro === 'provisional' ? 'todos' : 'provisional')}
+                >
+                  {filtro === 'provisional' ? 'Ver todos' : 'Ver cuáles'}
+                </button>
               </span>
-            </button>
+              <button
+                className={ui.btnPrimary}
+                onClick={onAsignar}
+                disabled={usarSimulado || ocupado !== null}
+                title="Fija los números SP / SC de los formularios que todavía no tienen. Quedan definitivos."
+              >
+                {ocupado === 'numeros' ? <Loader2 size={15} className="animate-spin" /> : <Hash size={15} />}
+                Asignar números ({provisionales})
+              </button>
+            </div>
           )}
 
           {/* Filtros */}
@@ -604,7 +611,7 @@ export default function FormatosPage() {
             </span>
           </div>
 
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_400px]">
+          <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_440px]">
             <div className={ui.tableWrap}>
               <div className="overflow-x-auto">
                 <table className="w-full">
@@ -690,6 +697,7 @@ export default function FormatosPage() {
                 ocupado={ocupado}
                 simulado={usarSimulado}
                 onAvisado={() => onAvisado(actual)}
+                onEditar={() => setEditando(actual)}
                 onFoto={(photos, i) => setGaleria({ photos, suministro: String(actual.punto.suministro), i })}
                 onPdf={() =>
                   actual.tipo === '2A'
@@ -705,30 +713,39 @@ export default function FormatosPage() {
           </div>
 
           <SectionCard title="Entrega de la semana" icon={<FileDown size={16} />} bodyClassName="p-4 space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-sm text-gray-500">
-                Los 1A se ordenan por fecha y se agrupan de 10 en 10. Clic en un reporte para verlo.
-                {provisionales > 0 && <span className="text-amber-700"> Con números provisionales.</span>}
-              </p>
-              <label className="flex cursor-pointer items-center gap-2 text-xs text-gray-700">
-                <input
-                  type="checkbox"
-                  checked={conFotos}
-                  onChange={(e) => setConFotos(e.target.checked)}
-                  className="h-4 w-4 accent-electric"
-                />
-                Incluir fotos <span className="text-gray-500">(evidencias de los NO y registro adicional)</span>
-              </label>
-              <label className="flex cursor-pointer items-center gap-2 text-xs text-gray-700">
-                <input
-                  type="checkbox"
-                  checked={anexarF4}
-                  onChange={(e) => setAnexarF4(e.target.checked)}
-                  className="h-4 w-4 accent-electric"
-                />
-                Anexar el Formato 4 de cada suministro{' '}
-                <span className="text-gray-500">(después de la hoja del 1A/2A; con fotos, tarda más)</span>
-              </label>
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+              <div className="space-y-2">
+                <p className="text-sm text-gray-500">
+                  Los 1A se ordenan por fecha y se agrupan de 10 en 10. Clic en un reporte para verlo.
+                  {provisionales > 0 && <span className="text-amber-700"> Con números provisionales.</span>}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {(
+                    [
+                      [conFotos, setConFotos, 'Incluir fotos', 'evidencias de los NO y registro adicional'],
+                      [anexarF4, setAnexarF4, 'Anexar el Formato 4', 'de cada suministro, después del 1A/2A'],
+                    ] as const
+                  ).map(([v, set, titulo, detalle]) => (
+                    <label
+                      key={titulo}
+                      className={`flex cursor-pointer items-center gap-2.5 rounded-xl border px-3 py-2 text-xs transition ${
+                        v ? 'border-electric/60 bg-blue-50' : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={v}
+                        onChange={(e) => set(e.target.checked)}
+                        className="h-4 w-4 accent-electric"
+                      />
+                      <span>
+                        <b className="block font-semibold text-gray-900">{titulo}</b>
+                        <span className="text-gray-500">{detalle}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
               <button className={ui.btnSuccess} disabled={ocupado !== null} onClick={zip}>
                 <Archive size={15} />{' '}
                 {ocupado === 'zip'
@@ -806,6 +823,18 @@ export default function FormatosPage() {
 
       {vista && <VistaPdf vista={vista} onCerrar={() => setVista(null)} />}
 
+      {editando?.servidor && (
+        <EditorFormato
+          s={editando}
+          hoja={hoja}
+          onCerrar={() => setEditando(null)}
+          onGuardado={(texto) => {
+            setAviso({ tono: 'ok', texto });
+            recargar();
+          }}
+        />
+      )}
+
       {galeria && (
         <PhotoGalleryModal
           photos={galeria.photos}
@@ -818,13 +847,14 @@ export default function FormatosPage() {
   );
 }
 
-// ------------------------------------------------------------------ detalle (solo lectura)
+// ------------------------------------------------------------------ detalle del formulario
 
 function Detalle({
   s,
   ocupado,
   simulado,
   onAvisado,
+  onEditar,
   onFoto,
   onPdf,
 }: {
@@ -832,6 +862,7 @@ function Detalle({
   ocupado: string | null;
   simulado: boolean;
   onAvisado: () => void;
+  onEditar: () => void;
   onFoto: (photos: PhotoLink[], i: number) => void;
   onPdf: () => void;
 }) {
@@ -842,6 +873,7 @@ function Detalle({
           { id: 'usuario', texto: TEXTO_USUARIO_1A, bloque: '', r: (s.usuario || undefined) as Resp | undefined },
         ]
       : ITEMS_2A.map((p) => ({ ...p, r: s.resp2A[p.id] as Resp | undefined }));
+  const enNo = filas.filter((p) => p.r === 'NO').length;
   // Fotos con link, para la galería (con su etiqueta)
   const conLink = s.fotosApp.filter((f) => f.url);
   const galeria: PhotoLink[] = conLink.map((f, k) => ({
@@ -849,92 +881,61 @@ function Detalle({
     fecha: `${f.rol} · ${f.timestamp}`,
     numero: k + 1,
   }));
+  const puedeEditar = !simulado && !!s.servidor && !!s.id;
 
   return (
     <SectionCard
       title={`${s.punto.suministro} · Muestra ${s.muestra}`}
       icon={<ClipboardCheck size={16} />}
-      bodyClassName="p-4 space-y-3"
-      className="xl:sticky xl:top-4 xl:self-start"
+      bodyClassName="p-4 space-y-4"
+      className="xl:sticky xl:top-4"
     >
-      <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
-        <Badge tone={s.tipo === '1A' ? 'blue' : 'amber'}>Formato {s.tipo}</Badge>
-        <span>
+      {/* Quién, cuándo, número y acciones principales */}
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+          <Badge tone={s.tipo === '1A' ? 'blue' : 'amber'}>Formato {s.tipo}</Badge>
+          {s.conforme ? <Badge tone="green">Conforme</Badge> : <Badge tone="red">No conforme · {enNo} en NO</Badge>}
+          <b className="text-electric">{etiquetaReporte(s)}</b>
+        </div>
+        <p className="text-xs text-gray-500">
           {s.tecnico} · {s.fechaTxt} {s.horaTxt}
-        </span>
-        <b className="text-electric">{etiquetaReporte(s)}</b>
+          {s.tipo === '1A' ? (
+            <>
+              {' '}
+              · sticker <b className="text-gray-800">{s.fechaSticker}</b> · lectura{' '}
+              <b className="text-gray-800">{s.lectura}</b>
+            </>
+          ) : (
+            <>
+              {' '}
+              · patrón <b className="text-gray-800">{s.patron || '—'}</b> · carga{' '}
+              <b className="text-gray-800">{s.carga || '—'}</b>
+            </>
+          )}
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          <button className={ui.btnSecondary} onClick={onPdf} disabled={ocupado !== null}>
+            {s.tipo === '2A' ? <FileDown size={15} /> : <FileText size={15} />}
+            {s.tipo === '2A' ? 'Ver PDF 2A' : `Ver PDF ${s.reporte}`}
+          </button>
+          <button
+            className={ui.btnSecondary}
+            onClick={onEditar}
+            disabled={!puedeEditar || ocupado !== null}
+            title={puedeEditar ? 'Corregir respuestas, certificados u observación' : 'Solo formularios reales'}
+          >
+            <PencilLine size={15} /> Corregir respuestas
+          </button>
+        </div>
+        {s.editado && (
+          <p className="flex items-center gap-1.5 rounded-lg bg-blue-50 px-2.5 py-1.5 text-[11px] text-electric">
+            <PencilLine size={12} className="shrink-0" /> Corregido desde el dashboard: {s.editado}
+          </p>
+        )}
       </div>
 
-      {/* Fotos del formulario con su función */}
-      {s.fotosApp.length > 0 ? (
-        <div className="grid grid-cols-3 gap-2">
-          {s.fotosApp.map((f, k) => {
-            const i = conLink.indexOf(f);
-            return (
-              <button
-                key={`${f.timestamp}-${k}`}
-                disabled={i < 0}
-                onClick={() => onFoto(galeria, i)}
-                className="min-w-0 text-left disabled:cursor-not-allowed"
-                title={f.rol}
-              >
-                {f.url ? (
-                  <Thumb url={f.url} size={104} />
-                ) : (
-                  <span className="flex h-[104px] items-center justify-center rounded-lg border border-dashed border-gray-300 p-1 text-center text-[10px] text-gray-500">
-                    Foto no encontrada
-                  </span>
-                )}
-                <span className="mt-0.5 block truncate text-[10px] text-gray-500">{f.rol}</span>
-              </button>
-            );
-          })}
-        </div>
-      ) : (
-        <p className="text-xs text-gray-500">El formulario no trae fotos.</p>
-      )}
-
-      <p className="text-[11px] text-gray-500">
-        Respuestas tal como llegaron de la app. Para corregir, hazlo en la app o en la hoja.
-      </p>
-      <div className="max-h-[340px] divide-y divide-gray-200 overflow-y-auto rounded-xl border border-gray-200">
-        {filas.map((p, k, arr) => {
-          const nuevoBloque = s.tipo === '2A' && p.bloque && (k === 0 || arr[k - 1].bloque !== p.bloque);
-          return (
-            <div key={p.id}>
-              {nuevoBloque && (
-                <div className="bg-gray-50 px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-gray-500">
-                  {p.bloque}
-                </div>
-              )}
-              <div
-                className={`flex items-center justify-between gap-3 px-3 py-1.5 text-xs ${p.r === 'NO' ? 'bg-red-50' : ''}`}
-              >
-                <span className="text-gray-700">{p.texto}</span>
-                <span
-                  className={`shrink-0 rounded-md px-2 py-0.5 text-[11px] font-bold ${
-                    p.r === 'SI'
-                      ? 'bg-green-600 text-white'
-                      : p.r === 'NO'
-                        ? 'bg-red-600 text-white'
-                        : 'border border-gray-300 text-gray-500'
-                  }`}
-                >
-                  {p.r ?? '—'}
-                </span>
-              </div>
-            </div>
-          );
-        })}
-        <div className="flex justify-between gap-3 px-3 py-1.5 text-xs">
-          <span className="text-gray-700">{s.tipo === '1A' ? 'Fecha del sticker · lectura' : 'Patrón · carga'}</span>
-          <b className="text-right text-gray-900">
-            {s.tipo === '1A' ? `${s.fechaSticker} · ${s.lectura}` : `${s.patron || '—'} · ${s.carga || '—'}`}
-          </b>
-        </div>
-      </div>
-
-      {!s.conforme ? (
+      {/* Observación y aviso (lo urgente, arriba) */}
+      {!s.conforme && (
         <div className="space-y-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800">
           <b className="block">Observación (va al PDF y al aviso):</b>
           <p className="whitespace-pre-wrap">{s.observacion || '—'}</p>
@@ -949,15 +950,78 @@ function Detalle({
             </button>
           )}
         </div>
-      ) : (
-        <div className="flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 p-3 text-xs text-green-800">
-          <CheckCircle2 size={15} /> Conforme · todo en SI
-        </div>
       )}
-      <button className={ui.btnSecondary} onClick={onPdf} disabled={ocupado !== null}>
-        {s.tipo === '2A' ? <FileDown size={15} /> : <FileText size={15} />}
-        {s.tipo === '2A' ? 'Formato 2A' : `Formato 1A del bloque ${s.reporte}`}
-      </button>
+
+      {/* Fotos del formulario con su función */}
+      <div>
+        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+          Fotos ({s.fotosApp.length})
+        </p>
+        {s.fotosApp.length > 0 ? (
+          <div className="grid grid-cols-4 gap-2">
+            {s.fotosApp.map((f, k) => {
+              const i = conLink.indexOf(f);
+              return (
+                <button
+                  key={`${f.timestamp}-${k}`}
+                  disabled={i < 0}
+                  onClick={() => onFoto(galeria, i)}
+                  className="min-w-0 text-left disabled:cursor-not-allowed"
+                  title={f.rol}
+                >
+                  {f.url ? (
+                    <Thumb url={f.url} size={88} />
+                  ) : (
+                    <span className="flex h-[88px] items-center justify-center rounded-lg border border-dashed border-gray-300 p-1 text-center text-[10px] text-gray-500">
+                      Foto no encontrada
+                    </span>
+                  )}
+                  <span className="mt-0.5 block text-[10px] leading-tight text-gray-500">{f.rol}</span>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-xs text-gray-500">El formulario no trae fotos.</p>
+        )}
+      </div>
+
+      {/* Respuestas */}
+      <div>
+        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+          Respuestas {enNo > 0 && <span className="text-red-700">· {enNo} en NO</span>}
+        </p>
+        <div className="max-h-[420px] divide-y divide-gray-200 overflow-y-auto rounded-xl border border-gray-200">
+          {filas.map((p, k, arr) => {
+            const nuevoBloque = s.tipo === '2A' && p.bloque && (k === 0 || arr[k - 1].bloque !== p.bloque);
+            return (
+              <div key={p.id}>
+                {nuevoBloque && (
+                  <div className="bg-gray-50 px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-gray-500">
+                    {p.bloque}
+                  </div>
+                )}
+                <div
+                  className={`flex items-center justify-between gap-3 px-3 py-1.5 text-xs ${p.r === 'NO' ? 'bg-red-50' : ''}`}
+                >
+                  <span className="text-gray-700">{p.texto}</span>
+                  <span
+                    className={`shrink-0 rounded-md px-2 py-0.5 text-[11px] font-bold ${
+                      p.r === 'SI'
+                        ? 'bg-green-600 text-white'
+                        : p.r === 'NO'
+                          ? 'bg-red-600 text-white'
+                          : 'border border-gray-300 text-gray-500'
+                    }`}
+                  >
+                    {p.r ?? '—'}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </SectionCard>
   );
 }
@@ -1166,7 +1230,7 @@ function PlanCoincidentes({
               >
                 <Sparkles size={15} /> Proponer {pedido ? meta : 'el 10 %'}
               </button>
-              <label className="flex items-center gap-1.5 text-xs text-gray-500">
+              <label className="flex items-center gap-1.5 whitespace-nowrap text-xs text-gray-500">
                 Cantidad que pidió ELSE
                 <input
                   type="number"

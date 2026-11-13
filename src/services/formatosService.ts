@@ -42,6 +42,8 @@ export interface FormatoServidor {
   reporte?: string;
   /** Fecha y hora del aviso a la contratista, o vacío. */
   avisado?: string;
+  /** «dd/MM/yyyy HH:mm · usuario» si se corrigió desde el dashboard (columna BB), o vacío. */
+  editado?: string;
 }
 
 /** Una foto del formulario con su etiqueta (para el panel de detalle). */
@@ -60,6 +62,10 @@ export interface SupervisadaApp extends Supervisada {
   /** Fecha y hora del aviso (vacío si no se avisó). */
   avisadoEn: string;
   fotosApp: FotoFormato[];
+  /** Formulario tal como llegó del servidor (para corregirlo); no existe en los simulados. */
+  servidor?: FormatoServidor;
+  /** «dd/MM/yyyy HH:mm · usuario» de la última corrección desde el dashboard. */
+  editado: string;
 }
 
 export interface RespuestaFormatos {
@@ -170,6 +176,21 @@ export const marcarCoincidente = (hoja: string, suministros: string[], valor: bo
 
 /** Fija los números SP / SC de los formularios que aún no tienen. Los ya numerados no cambian. */
 export const asignarNumeros = (hoja: string) => accion('asignarNumeros', { hoja });
+
+/** Lo que se puede corregir de un formulario desde el dashboard (los que no van, quedan igual). */
+export interface CambiosFormato {
+  /** Respuestas con los ids de la app (SI / NO / N.A.; vacío borra la respuesta). */
+  resp?: Record<string, string>;
+  observacion?: string;
+  fechaSticker?: string;
+  lectura?: string;
+  patron?: string;
+  carga?: string;
+}
+
+/** Corrige las respuestas de un formulario ya recibido (columna BB guarda quién y cuándo). */
+export const editarFormato = (hoja: string, id: string, cambios: CambiosFormato) =>
+  accion('editarFormato', { hoja, id, cambios });
 
 /** Registra (o borra) el aviso a la contratista de un formulario no conforme. */
 export const marcarAvisado = (hoja: string, id: string, avisado: boolean) =>
@@ -432,6 +453,8 @@ export function aSupervisadas(
       reporte: String(f.reporte ?? '').trim(),
       provisional: false,
       id: String(f.id ?? ''),
+      servidor: f,
+      editado: String(f.editado ?? '').trim(),
       fotosApp: (Array.isArray(f.fotos) ? f.fotos : []).map((x) => ({
         url: urlDeFoto(x, punto),
         rol: String(x?.rol ?? '').trim() || 'Sin etiqueta',

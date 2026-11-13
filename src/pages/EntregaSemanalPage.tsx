@@ -4,16 +4,17 @@
 // son avisos que se pueden saltar a conciencia con «Entregar igual».
 import { useMemo, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CalendarDays, Download, Hash, Loader2, Package, RefreshCw, Send, X } from 'lucide-react';
+import { CalendarDays, Hash, Loader2, Package, RefreshCw, Send, X } from 'lucide-react';
 import { usePointsStore } from '../stores/pointsStore';
 import { Badge, EmptyState, PageHeader, ui } from '../components/ui';
 import { Paso, ItemRevision, type EstadoItem, type EstadoPaso } from '../components/entrega/Paso';
 import { useEntrega } from '../components/entrega/useEntrega';
 import { nombreSemana, nombreZip, plazoDe, revisar } from '../components/entrega/revision';
-import { armarPaquete, descargar, type OpcionesPaquete, type Progreso } from '../components/entrega/paquete';
+import { armarPaquete, descargar, type Progreso } from '../components/entrega/paquete';
+import { usePaquete } from '../components/entrega/usePaquete';
+import { ArmadorPaquete, BarraDescarga, type Motivo } from '../components/entrega/ArmadorPaquete';
 import { asignarNumeros, etiquetaReporte, marcarAvisado, type SupervisadaApp } from '../services/formatosService';
 import { bloques1A } from '../utils/pdfFormatos';
-import { guardarAnexarF4, leerAnexarF4 } from '../utils/formatosConAnexo';
 
 const btnGrande = `${ui.btnPrimary} px-6 py-3 text-base`;
 const btnArreglar =
@@ -25,7 +26,7 @@ export default function EntregaSemanalPage() {
   const selectedSheet = usePointsStore((s) => s.selectedSheet);
   const hoja = selectedSheet ?? '';
   return (
-    <div className="mx-auto max-w-5xl space-y-5">
+    <div className="mx-auto max-w-7xl space-y-5">
       <PageHeader
         kicker="Supervisión · paquete para ELSE"
         title="Entrega semanal"
@@ -121,40 +122,36 @@ function EntregaDeSemana({ hoja }: { hoja: string }) {
   };
 
   // ---------------------------------------------------------------- paquete (paso 4)
-  // Con el Formato 4 anexado en cada 1A/2A, la carpeta Formato_4 aparte empieza desmarcada (sería repetido)
-  const [op, setOpEstado] = useState<OpcionesPaquete>(() => {
-    const anexarF4 = leerAnexarF4();
-    return { f4: !anexarF4, f4Fotos: false, f1A: true, f2A: true, fotos: true, anexarF4 };
-  });
-  const setOp = (o: OpcionesPaquete) => {
-    if (o.anexarF4 !== op.anexarF4) guardarAnexarF4(o.anexarF4);
-    setOpEstado(o);
-  };
+  // Lo que va en el ZIP, archivo por archivo, y sus opciones (ver usePaquete)
+  const paq = usePaquete(hoja, anexos, sup);
   const [progreso, setProgreso] = useState<Progreso | null>(null);
   const [resultado, setResultado] = useState<{ ok: boolean; texto: string } | null>(null);
   const generando = progreso !== null;
 
-  const f1A = op.f1A && bloques.length > 0;
-  const f2A = op.f2A && coincidentes.length > 0;
-  const f4 = op.f4 && anexos.length > 0;
-  const motivos: ReactNode[] = [];
-  if (cargando) motivos.push('Espera a que terminen de cargar los datos de la semana.');
-  if (!cargando && !f4 && !f1A && !f2A) motivos.push('Marca al menos un formato que tenga documentos.');
-  if (rev.provisionales.length && (f1A || f2A) && !borrador)
-    motivos.push(
-      <>
-        Hay {plural(rev.provisionales.length, 'formulario', 'formularios')} con número provisional. Asigna los números
-        en el <b>paso 3</b>, o marca «Descargar borrador».
-      </>,
-    );
+  const f1A = paq.n1A > 0;
+  const f2A = paq.n2A > 0;
+  const f4 = paq.n4 > 0;
+  const irAPaso = (id: string, foco?: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (foco) setTimeout(() => document.getElementById(foco)?.focus({ preventScroll: true }), 400);
+  };
+  const motivos: Motivo[] = [];
+  if (cargando) motivos.push({ texto: 'Espera a que terminen de cargar los datos de la semana.' });
+  if (!cargando && !paq.total) motivos.push({ texto: 'Marca al menos un archivo en la lista.' });
+  if (paq.provisionales && !borrador)
+    motivos.push({
+      texto: `${plural(paq.provisionales, 'archivo lleva', 'archivos llevan')} número provisional.`,
+      acciones: [
+        { texto: 'Asignar números (paso 3)', onClick: () => irAPaso('paso-3') },
+        { texto: 'o bajar como borrador', onClick: () => setBorrador(true) },
+      ],
+    });
   if (avisos && !entregarIgual && !borrador)
-    motivos.push(
-      <>
-        {avisos === 1 ? 'Queda 1 punto' : `Quedan ${fmt(avisos)} puntos`} por revisar en el <b>paso 2</b>. Arréglalos o
-        marca «Entregar igual».
-      </>,
-    );
-  const esBorrador = borrador && rev.provisionales.length > 0 && (f1A || f2A);
+    motivos.push({
+      texto: `${avisos === 1 ? 'Queda 1 punto ámbar' : `Quedan ${fmt(avisos)} puntos ámbar`} sin revisar.`,
+      acciones: [{ texto: 'Ir al paso 2 («Entregar igual»)', onClick: () => irAPaso('paso-2', 'entregar-igual') }],
+    });
+  const esBorrador = borrador && paq.provisionales > 0;
   const zipNombre = nombreZip(hoja, esBorrador);
   const puedeDescargar = !motivos.length && !generando;
 
@@ -162,7 +159,8 @@ function EntregaDeSemana({ hoja }: { hoja: string }) {
     setResultado(null);
     setProgreso({ pct: 0, texto: 'Preparando…' });
     try {
-      const r = await armarPaquete(hoja, anexos, sup, { ...op, f4, f1A, f2A }, setProgreso);
+      // Solo lo marcado: anexos elegidos y formularios de los reportes elegidos (mismos generadores)
+      const r = await armarPaquete(hoja, paq.anexosSel, paq.supSel, { ...paq.op, f4, f1A, f2A }, setProgreso);
       descargar(r.blob, zipNombre);
       const partes: string[] = [];
       if (f4)
@@ -205,6 +203,7 @@ function EntregaDeSemana({ hoja }: { hoja: string }) {
           {/* ------------------------------------------------------------ 2 */}
           <Paso
             n={2}
+            id="paso-2"
             titulo="Revisa lo que falta"
             estado={estadoPaso[1]}
             ayuda="Verde: listo. Ámbar: conviene arreglarlo antes de entregar. Rojo: impide la entrega final."
@@ -395,6 +394,7 @@ function EntregaDeSemana({ hoja }: { hoja: string }) {
                 {avisos > 0 && (
                   <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-gray-900">
                     <input
+                      id="entregar-igual"
                       type="checkbox"
                       className="mt-0.5 h-5 w-5 shrink-0 accent-amber-500"
                       checked={entregarIgual}
@@ -449,126 +449,31 @@ function EntregaDeSemana({ hoja }: { hoja: string }) {
             n={4}
             titulo="Descarga el paquete"
             estado={estadoPaso[3]}
-            ayuda="Un solo ZIP con una carpeta por formato."
+            ayuda="Arma el ZIP: marca lo que va, revisa cualquier archivo antes de bajarlo y descarga."
           >
-            <div className="space-y-3">
-              <Casilla
-                checked={op.f4}
-                disabled={generando || !anexos.length}
-                onChange={(v) => setOp({ ...op, f4: v })}
-                titulo={`Formato 4 · anexos (${fmt(anexos.length)})`}
-                nota={
-                  !anexos.length
-                    ? 'No hay suministros con lectura en esta semana.'
-                    : op.anexarF4 && (f1A || f2A)
-                      ? 'Carpeta aparte, igual que en Reportes. Ya va dentro de cada 1A/2A: márcala solo si también la quieres suelta.'
-                      : 'Carpeta aparte, igual que en Reportes.'
-                }
+            <div className="space-y-4">
+              {cargando ? (
+                <Cargando texto="Cargando lo que irá en el paquete…" />
+              ) : (
+                <ArmadorPaquete
+                  hoja={hoja}
+                  paq={paq}
+                  zipNombre={zipNombre}
+                  generando={generando}
+                  borrador={borrador}
+                  setBorrador={setBorrador}
+                />
+              )}
+              <BarraDescarga
+                paq={paq}
+                motivos={motivos}
+                puedeDescargar={puedeDescargar}
+                generando={generando}
+                progreso={progreso}
+                onDescargar={generar}
               >
-                {op.f4 && anexos.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {[
-                      { v: false, t: 'Sin fotos (rápido)' },
-                      { v: true, t: 'Con fotos (lento)' },
-                    ].map((x) => (
-                      <label
-                        key={x.t}
-                        className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-sm ${
-                          op.f4Fotos === x.v ? 'border-electric text-gray-900' : 'border-gray-300 text-gray-600'
-                        }`}
-                      >
-                        <input
-                          type="radio"
-                          name="f4fotos"
-                          className="accent-blue-600"
-                          checked={op.f4Fotos === x.v}
-                          disabled={generando}
-                          onChange={() => setOp({ ...op, f4Fotos: x.v })}
-                        />
-                        {x.t}
-                      </label>
-                    ))}
-                  </div>
-                )}
-              </Casilla>
-              <Casilla
-                checked={op.f1A}
-                disabled={generando || !bloques.length}
-                onChange={(v) => setOp({ ...op, f1A: v })}
-                titulo={`Formato 1A · reportes SP (${fmt(bloques.length)})`}
-                nota={!bloques.length ? 'Sin formularios 1A.' : undefined}
-              />
-              <Casilla
-                checked={op.f2A}
-                disabled={generando || !coincidentes.length}
-                onChange={(v) => setOp({ ...op, f2A: v })}
-                titulo={`Formato 2A · reportes SC (${fmt(coincidentes.length)})`}
-                nota={!coincidentes.length ? 'Sin formularios 2A.' : undefined}
-              />
-              <Casilla
-                checked={op.anexarF4}
-                disabled={generando || (!f1A && !f2A)}
-                onChange={(v) => setOp({ ...op, anexarF4: v, f4: v ? false : op.f4 })}
-                titulo="Anexar el Formato 4 de cada suministro dentro del 1A / 2A"
-                nota="Va después de la hoja del 1A/2A, con sus fotos (tarda más). Al marcarlo se desmarca la carpeta Formato 4 aparte para no repetirla."
-              />
-              <Casilla
-                checked={op.fotos}
-                disabled={generando || (!f1A && !f2A)}
-                onChange={(v) => setOp({ ...op, fotos: v })}
-                titulo="Incluir fotos en 1A / 2A (evidencias y registro adicional)"
-                nota="Sin esto los PDF pesan menos, pero no llevan las fotos de los NO."
-              />
-
-              {rev.provisionales.length > 0 && (f1A || f2A) && (
-                <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-gray-900">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5 h-5 w-5 shrink-0 accent-red-500"
-                    checked={borrador}
-                    disabled={generando}
-                    onChange={(e) => setBorrador(e.target.checked)}
-                  />
-                  <span>
-                    <b>Descargar borrador (números provisionales).</b> Sirve para revisar, no para entregar: el archivo
-                    termina en «_BORRADOR».
-                  </span>
-                </label>
-              )}
-
-              <div className="flex flex-wrap items-center gap-3 pt-2">
-                <button type="button" className={btnGrande} disabled={!puedeDescargar} onClick={generar}>
-                  {generando ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
-                  Descargar el paquete
-                </button>
-                <span className="break-all font-mono text-sm text-gray-600">{zipNombre}</span>
-              </div>
-
-              {motivos.length > 0 && !generando && (
-                <ul className="space-y-1 rounded-xl border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
-                  <li className="font-semibold text-gray-900">Para descargar:</li>
-                  {motivos.map((m, k) => (
-                    <li key={k}>• {m}</li>
-                  ))}
-                </ul>
-              )}
-
-              {progreso && (
-                <div role="status" aria-live="polite">
-                  <div className="mb-1 flex justify-between text-sm text-gray-600">
-                    <span className="truncate font-mono">{progreso.texto}</span>
-                    <span className="font-mono">{progreso.pct}%</span>
-                  </div>
-                  <div className="h-3 w-full overflow-hidden rounded-full bg-gray-100">
-                    <div
-                      className="h-full rounded-full bg-electric transition-all duration-300"
-                      style={{ width: `${progreso.pct}%` }}
-                    />
-                  </div>
-                  <p className="mt-1 text-xs text-gray-500">No cierres ni recargues esta pestaña.</p>
-                </div>
-              )}
-              {resultado && <Mensaje ok={resultado.ok}>{resultado.texto}</Mensaje>}
+                {resultado && <Mensaje ok={resultado.ok}>{resultado.texto}</Mensaje>}
+              </BarraDescarga>
             </div>
           </Paso>
         </>
@@ -763,41 +668,6 @@ function FilaSuministro({ s, onAbrir, children }: { s: SupervisadaApp; onAbrir: 
       <span className="text-gray-500">{s.tecnico}</span>
       <div className="flex min-w-[12rem] flex-1 flex-col items-start gap-1 text-gray-700">{children}</div>
     </li>
-  );
-}
-
-function Casilla({
-  checked,
-  disabled,
-  onChange,
-  titulo,
-  nota,
-  children,
-}: {
-  checked: boolean;
-  disabled?: boolean;
-  onChange: (v: boolean) => void;
-  titulo: string;
-  nota?: string;
-  children?: ReactNode;
-}) {
-  return (
-    <div className={`rounded-xl border border-gray-200 p-3 ${disabled && !checked ? 'opacity-60' : ''}`}>
-      <label className={`flex items-start gap-3 ${disabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
-        <input
-          type="checkbox"
-          className="mt-0.5 h-5 w-5 shrink-0 accent-blue-600"
-          checked={checked && !(disabled && !checked)}
-          disabled={disabled}
-          onChange={(e) => onChange(e.target.checked)}
-        />
-        <span>
-          <span className="block font-semibold text-gray-900">{titulo}</span>
-          {nota && <span className="block text-xs text-gray-500">{nota}</span>}
-        </span>
-      </label>
-      {children}
-    </div>
   );
 }
 

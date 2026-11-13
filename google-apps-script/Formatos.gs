@@ -1,5 +1,5 @@
 // Formatos.gs — Acciones NUEVAS «guardarFormato», «getFormatos», «getPlanJornada», «marcarCoincidente»,
-// «asignarNumeros» y «marcarAvisado» (no modifican ninguna otra).
+// «asignarNumeros», «marcarAvisado» y «editarFormato» (no modifican ninguna otra).
 //
 // Formatos de supervisión 1A / 2A llenados en la app de campo (v2.3). Contrato
 // de pedido y respuesta en docs/diseno/contrato_formatos_api.md.
@@ -11,7 +11,8 @@
 //     AW FORMATO_ID_FOTO (id del formulario dueño de esa foto).
 //   - En UNA fila de foto (la panorámica; si no está, la de «Lectura del medidor»;
 //     si tampoco, la primera foto encontrada): AL–AV y AX con los datos del formulario,
-//     AZ REPORTE (número fijo SP-/SC-) y BA AVISADO (fecha del aviso a la contratista).
+//     AZ REPORTE (número fijo SP-/SC-), BA AVISADO (fecha del aviso a la contratista) y
+//     BB EDITADO («dd/MM/yyyy HH:mm · usuario» si se corrigió desde el dashboard).
 //   - En la FILA PROGRAMADA del suministro (A vacía): AY COINCIDENTE_PLAN («SI» o vacío).
 // Las fotos se reconocen por suministro (D) y Synced_At (AF) = fotos[].timestamp,
 // el mismo texto «dd/MM/yyyy HH:mm:ss» que la app mandó en savePhoto.
@@ -23,7 +24,7 @@
 //   responde «Primero sincroniza…» y la app lo deja pendiente.
 // - getFormatos (GET, dashboard): ?action=getFormatos&sheetName=<hoja>. Sin odtId.
 // - getPlanJornada (GET, sin token, como getSuministros): suministros programados y si son coincidentes.
-// - marcarCoincidente / asignarNumeros / marcarAvisado (POST, dashboard): token de sesión de
+// - marcarCoincidente / asignarNumeros / marcarAvisado / editarFormato (POST, dashboard): token de sesión de
 //   ADMIN o SUPERVISOR, la misma verificación que getCredenciales (correccion_usuarioAutorizado_).
 //
 // Usa correccion_norm_ y correccion_tecnicoRegistrado_ (correcciones) y traslado_hojaOculta_ (traslados).
@@ -31,10 +32,10 @@
 const FORMATO_COL_INICIO = 37; // AK
 const FORMATO_COLS = ['ETIQUETA_FOTO', 'FORMATO', 'FORMATO_ID', 'CONFORME', 'FECHA_STICKER', 'OBS_FORMATO',
   'ITEMS_NO', 'RESPUESTAS', 'CERT_PATRON', 'CERT_CARGA', 'RECIBIDO', 'FORMATO_FECHA', 'FORMATO_ID_FOTO',
-  'LECTURA_FORMATO', 'COINCIDENTE_PLAN', 'REPORTE', 'AVISADO'];
-// Posición (0-based) dentro de AK–BA
+  'LECTURA_FORMATO', 'COINCIDENTE_PLAN', 'REPORTE', 'AVISADO', 'EDITADO'];
+// Posición (0-based) dentro de AK–BB
 const FC = { etiqueta: 0, tipo: 1, id: 2, conforme: 3, fechaSticker: 4, obs: 5, itemsNo: 6, resp: 7,
-  patron: 8, carga: 9, recibido: 10, fecha: 11, idFoto: 12, lectura: 13, coincidente: 14, reporte: 15, avisado: 16 };
+  patron: 8, carga: 9, recibido: 10, fecha: 11, idFoto: 12, lectura: 13, coincidente: 14, reporte: 15, avisado: 16, editado: 17 };
 const FORMATOS_TIPOS = ['1A', '2A'];
 const FORMATO_ID_MAX = 64;
 const FORMATO_CELDA_MAX = 45000; // una celda de Sheets admite 50 000 caracteres
@@ -160,7 +161,7 @@ function formato_leerHoja_(sh) {
  * escribe nada (serían datos de otra persona) y devuelve un mensaje de error.
  */
 function formato_prepararColumnas_(sh) {
-  const ultima = FORMATO_COL_INICIO + FORMATO_COLS.length - 1; // BA = 53
+  const ultima = FORMATO_COL_INICIO + FORMATO_COLS.length - 1; // BB = 54
   if (sh.getMaxColumns() < ultima) sh.insertColumnsAfter(sh.getMaxColumns(), ultima - sh.getMaxColumns());
   const head = sh.getRange(1, FORMATO_COL_INICIO, 1, FORMATO_COLS.length).getValues()[0];
   let faltan = false;
@@ -285,6 +286,7 @@ function handleGuardarFormato(requestData) {
         }
         r[FC.reporte] = '';
         r[FC.avisado] = '';
+        r[FC.editado] = ''; // el reenvío de la app reemplaza la corrección del dashboard
       }
       if (formato_texto_(extra[i][FC.idFoto]) === id && !(i in nuevas)) {
         // Foto que ya no es parte del formulario: se le quita la etiqueta
@@ -409,7 +411,8 @@ function handleGetFormatos(sheetName) {
         }),
         recibido: formato_fecha_(e[FC.recibido], zona, 'dd/MM/yyyy HH:mm'),
         reporte: formato_texto_(e[FC.reporte]),
-        avisado: formato_fecha_(e[FC.avisado], zona, 'dd/MM/yyyy HH:mm')
+        avisado: formato_fecha_(e[FC.avisado], zona, 'dd/MM/yyyy HH:mm'),
+        editado: formato_texto_(e[FC.editado])
       });
     }
     return createResponse(true, formatos.length + ' formato(s)', { formatos: formatos });
@@ -714,4 +717,90 @@ function formato_fechaProgramada_(v, zona) {
   m = t.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
   if (m) return dos(m[1]) + '/' + dos(m[2]) + '/' + m[3];
   return t;
+}
+
+/**
+ * POST { action: 'editarFormato', token, hoja, id, cambios: { resp, observacion, fechaSticker, lectura, patron, carga } }
+ * Corrige desde el dashboard las respuestas de un formulario ya recibido (token de ADMIN o SUPERVISOR).
+ * Solo reescribe, en la fila del formulario: CONFORME (sale de resp: algún NO = no conforme),
+ * FECHA_STICKER, OBS_FORMATO, ITEMS_NO, RESPUESTAS, CERT_PATRON, CERT_CARGA, LECTURA_FORMATO y BB EDITADO.
+ * No toca fotos, fecha, recibido, número (AZ) ni aviso (BA). Los campos que no vienen quedan como estaban.
+ * Respuesta: { id, fila, conforme, editado }
+ */
+function handleEditarFormato(requestData) {
+  const lock = LockService.getScriptLock();
+  try {
+    const d = requestData || {};
+    const usuario = correccion_usuarioAutorizado_(d.token);
+    if (!usuario) return createResponse(false, FORMATO_NO_AUTORIZADO);
+    const id = formato_texto_(d.id);
+    if (!id) return createResponse(false, 'Falta el id del formulario');
+    const c = d.cambios;
+    if (!c || typeof c !== 'object' || Array.isArray(c)) return createResponse(false, 'Faltan los cambios');
+    const j = formato_jornada_(d.hoja);
+    if (j.error) return createResponse(false, j.error);
+    const sh = j.sh;
+    const zona = formato_zona_(SpreadsheetApp.openById(SPREADSHEET_ID));
+
+    lock.waitLock(20000);
+    const extra = formato_leerHoja_(sh).extra;
+    let i = -1;
+    for (let k = 0; k < extra.length; k++) {
+      if (formato_texto_(extra[k][FC.id]) === id) { i = k; break; }
+    }
+    if (i < 0) return createResponse(false, 'Formulario no encontrado en la jornada: ' + id);
+    const r = extra[i];
+    const tipo = formato_texto_(r[FC.tipo]).toUpperCase();
+    if (FORMATOS_TIPOS.indexOf(tipo) < 0) return createResponse(false, 'Tipo de formato no válido en la hoja: ' + r[FC.tipo]);
+
+    // Respuestas: las que llegan reemplazan a las anteriores; las que no llegan se conservan
+    const resp = formato_leerRespuestas_(r[FC.resp]);
+    if (c.resp !== undefined) {
+      if (!c.resp || typeof c.resp !== 'object' || Array.isArray(c.resp)) {
+        return createResponse(false, 'Las respuestas (resp) deben ser un objeto');
+      }
+      const validas = FORMATO_PREGUNTAS[tipo].map(function (p) { return p[0]; });
+      const claves = Object.keys(c.resp);
+      for (let k = 0; k < claves.length; k++) {
+        const v = formato_texto_(c.resp[claves[k]]).toUpperCase();
+        if (validas.indexOf(claves[k]) < 0) return createResponse(false, 'Pregunta desconocida para el ' + tipo + ': ' + claves[k]);
+        if (['SI', 'NO', 'N.A.', ''].indexOf(v) < 0) return createResponse(false, 'Respuesta no válida en ' + claves[k] + ': ' + v);
+        if (v) resp[claves[k]] = v; else delete resp[claves[k]];
+      }
+    }
+    const conforme = !Object.keys(resp).some(function (k) { return formato_texto_(resp[k]).toUpperCase() === 'NO'; });
+    const observacion = c.observacion !== undefined ? formato_texto_(c.observacion) : formato_texto_(r[FC.obs]);
+    if (!conforme && !observacion) return createResponse(false, 'Un formato NO conforme necesita una observación');
+    const respuestas = formato_respuestas_(tipo, resp);
+    const itemsNo = formato_itemsNo_(tipo, resp);
+    if (respuestas.length > FORMATO_CELDA_MAX || observacion.length > FORMATO_CELDA_MAX) {
+      return createResponse(false, 'El formato es demasiado grande');
+    }
+
+    const aviso = formato_prepararColumnas_(sh);
+    if (aviso) return createResponse(false, aviso);
+
+    const editado = Utilities.formatDate(new Date(), zona, 'dd/MM/yyyy HH:mm') + ' · ' + usuario.email;
+    const celdas = {};
+    celdas[FC.conforme] = conforme ? 'SI' : 'NO';
+    celdas[FC.obs] = observacion;
+    celdas[FC.itemsNo] = itemsNo;
+    celdas[FC.resp] = respuestas;
+    if (c.fechaSticker !== undefined) celdas[FC.fechaSticker] = formato_texto_(c.fechaSticker);
+    if (c.patron !== undefined) celdas[FC.patron] = formato_texto_(c.patron);
+    if (c.carga !== undefined) celdas[FC.carga] = formato_texto_(c.carga);
+    if (c.lectura !== undefined) celdas[FC.lectura] = formato_texto_(c.lectura);
+    celdas[FC.editado] = editado;
+    // Celda por celda, en texto plano: RECIBIDO (AU) y AVISADO (BA) conservan su formato de fecha
+    Object.keys(celdas).forEach(function (k) {
+      sh.getRange(i + 2, FORMATO_COL_INICIO + Number(k)).setNumberFormat('@').setValue(celdas[k]);
+    });
+    SpreadsheetApp.flush();
+    return createResponse(true, 'Formulario corregido', { id: id, fila: i + 2, conforme: conforme, editado: editado });
+  } catch (error) {
+    Logger.log('Error en editarFormato: ' + error);
+    return createResponse(false, 'Error: ' + error.toString());
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
+  }
 }
